@@ -566,10 +566,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
 
       const payloadString = JSON.stringify(transactionPayload);
 
-      // Update this IP when testing on a real device (e.g. "http://192.168.1.5:3001/relay")
-      const RELAYER_URL = "http://localhost:3001/relay";
-
-      // Check internet connectivity and choose submission path
+      // Submit via relayer
       if (hasInternet) {
         console.log("🚀 Device has internet - submitting via relayer...");
         setIsDirectSubmission(true);
@@ -582,7 +579,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           if (transactionPayload.upiId) {
             // UPI payment → route through relayer: blockchain + Decentro INR payout
             console.log("💳 UPI payment — calling relayer for INR payout to:", transactionPayload.upiId);
-            const relayRes = await fetch(RELAYER_URL, {
+            const relayRes = await fetch(CONTRACT_CONFIG.RELAYER_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: payloadString,

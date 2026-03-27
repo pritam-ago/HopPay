@@ -475,28 +475,29 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
     forceUpdate();
 
     // --- STALL DETECTION: Reset timer on every new chunk ---
-    // If we reach ≥80% chunks but stop receiving for 15 s, force reassembly
-    // with zero-filled gaps rather than waiting forever.
+    // If we stop receiving chunks for 30s, log diagnostics but do NOT attempt
+    // partial reassembly — parsing an incomplete JSON causes the
+    // "JSON Parse error: Expect ':' after the key" error.
     const stallTimers = stallTimersRef.current;
     if (stallTimers.has(id)) {
       clearTimeout(stallTimers.get(id)!);
       stallTimers.delete(id);
     }
     if (!entry.isComplete) {
-      const STALL_TIMEOUT_MS = 15000;
+      const STALL_TIMEOUT_MS = 30000;
       const stallTimer = setTimeout(() => {
         const currentEntry = masterStateRef.current.get(id);
         if (!currentEntry || currentEntry.isComplete) return;
         const pct = Math.round((currentEntry.chunks.size / currentEntry.totalChunks) * 100);
-        if (currentEntry.chunks.size >= Math.ceil(currentEntry.totalChunks * 0.8)) {
-          // Find missing chunks for logging
-          const missing: number[] = [];
-          for (let i = 1; i <= currentEntry.totalChunks; i++) {
-            if (!currentEntry.chunks.has(i)) missing.push(i);
-          }
-          console.warn(`⚠️ [MESH] Stall detected for message ${id}: ${currentEntry.chunks.size}/${currentEntry.totalChunks} chunks (${pct}%). Missing: [${missing.join(', ')}]. Attempting partial reassembly...`);
-          reassembleAndProcess(id, currentEntry);
+        const missing: number[] = [];
+        for (let i = 1; i <= currentEntry.totalChunks; i++) {
+          if (!currentEntry.chunks.has(i)) missing.push(i);
         }
+        console.warn(`⚠️ [MESH] Stall detected for message ${id}: ${currentEntry.chunks.size}/${currentEntry.totalChunks} chunks (${pct}%). Missing chunks: [${missing.join(', ')}]. Waiting for retransmission — NOT attempting partial parse to avoid JSON corruption.`);
+        // Do NOT call reassembleAndProcess here — a missing chunk in the
+        // middle of the JSON turns e.g. "key" → "ke\0\0y" which after
+        // null-stripping produces invalid JSON (missing the ':' separator).
+        // The sender will keep re-broadcasting; we just need to wait.
       }, STALL_TIMEOUT_MS);
       stallTimers.set(id, stallTimer);
     }
@@ -519,7 +520,8 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
 
     console.log(`📦 [MESH] Reassembling message ID: ${id} (${entry.chunks.size}/${entry.totalChunks} chunks)`);
 
-    const DATA_PER_CHUNK = 6;
+    // Must match DATA_PER_CHUNK in bleUtils.ts encodeMessageToChunks
+    const DATA_PER_CHUNK = 18;
     const fullBinary = new Uint8Array(entry.totalChunks * DATA_PER_CHUNK); // zero-initialised
     let offset = 0;
 

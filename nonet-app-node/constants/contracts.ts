@@ -10,6 +10,11 @@ export const CONTRACT_CONFIG = {
   // Token name for EIP-712 domain (must match contract deployment)
   TOKEN_NAME: "MESHT", // Update this if your contract uses a different name
   TOKEN_VERSION: "1", // EIP-712 version from contract
+  // Relayer URL — must be your Mac's LAN IP, NOT "localhost".
+  // "localhost" on the phone means the phone itself, not your Mac.
+  // Phone and Mac must both be on the same WiFi network.
+  // Current Mac LAN IP: 172.16.41.80 (run `ifconfig | grep "inet "` to update if it changes)
+  RELAYER_URL: "http://172.16.41.80:3001/relay",
 };
 
 // Contract ABI for transferWithAuthorization function and balanceOf
