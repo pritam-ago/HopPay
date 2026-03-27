@@ -16,9 +16,8 @@ import { router } from "expo-router";
 import { useWallet } from "@/contexts/WalletContext";
 import { useCameraPermissions } from "expo-camera";
 import { requestBluetoothPermissions } from "@/utils/permissions";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // Added for mock DB
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// --- Theme Constants (Glassmorphism + Dark Mode) ---
 const THEME = {
   bg: "#0F172A",
   glassBg: "rgba(255, 255, 255, 0.05)",
@@ -30,75 +29,73 @@ const THEME = {
   textMuted: "#94A3B8",
 };
 
-// Mock function to generate 12 fake seed words
 const generateMockSeedPhrase = () => {
   const words = ["abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid"];
   const seed = [];
-  for(let i=0; i<12; i++) {
-    seed.push(words[Math.floor(Math.random() * words.length)]);
-  }
+  for (let i = 0; i < 12; i++) seed.push(words[Math.floor(Math.random() * words.length)]);
   return seed.join(" ");
 };
 
 export default function WelcomePage(): React.JSX.Element {
   const { isLoggedIn, createWallet } = useWallet();
   const [, requestCameraPermission] = useCameraPermissions();
-  
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
+  const [gender, setGender] = useState("");
   const [realUpiId, setRealUpiId] = useState("");
   const [hopHandle, setHopHandle] = useState("");
   const [seedPhrase, setSeedPhrase] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    if (isLoggedIn) {
-      router.replace("/(tabs)");
-    }
+    if (isLoggedIn) router.replace("/(tabs)");
   }, [isLoggedIn]);
 
   const handlePhoneSubmit = () => {
-    if (phone.length < 10) {
-      Alert.alert("Invalid", "Please enter a valid phone number.");
-      return;
-    }
-    setStep(2); // Go to OTP
+    if (phone.length < 10) return Alert.alert("Invalid", "Please enter a valid phone number.");
+    setStep(2);
   };
 
   const handleOtpSubmit = () => {
-    if (otp !== "1234") {
-      Alert.alert("Simulated OTP", "Please enter 1234 for the simulation.");
-      return;
+    if (otp !== "1234") return Alert.alert("Simulated OTP", "Please enter 1234 for the simulation.");
+    setStep(3);
+  };
+
+  const handlePersonalInfoSubmit = () => {
+    if (name.length < 2 || dob.length < 4 || gender.length < 3) {
+      return Alert.alert("Invalid", "Please fill out all personal fields.");
     }
-    setStep(3); // Go to UPI mapping
+    setStep(4);
   };
 
   const handleUpiSubmit = async () => {
     if (!realUpiId.includes("@") || hopHandle.length < 3) {
-      Alert.alert("Invalid", "Please enter a real UPI ID and a valid @hoppay handle.");
-      return;
+      return Alert.alert("Invalid", "Please enter a real UPI ID and a valid @hoppay handle.");
     }
-    
-    // In a real app, we'd save this mapping to a backend.
-    // Here we save it to local storage to simulate profile creation.
-    await AsyncStorage.setItem("@user_profile", JSON.stringify({ realUpiId, hopHandle: `${hopHandle}@hoppay` }));
-    
+
+    await AsyncStorage.setItem("@user_profile", JSON.stringify({
+      realUpiId,
+      hopHandle: `${hopHandle}@hoppay`,
+      name,
+      dob,
+      gender,
+      phoneNumber: phone
+    }));
+
     setSeedPhrase(generateMockSeedPhrase());
-    setStep(4); // Go to Seed Phrase
+    setStep(5);
   };
 
   const finalizeWallet = async () => {
     try {
       setIsCreating(true);
-      // Request essential permissions silently
       await requestCameraPermission();
       await requestBluetoothPermissions();
-
-      // Create ECDSA Wallet from WalletContext
       await createWallet();
-      
-      // The useEffect listening to `isLoggedIn` will auto-navigate to /(tabs)
     } catch (e) {
       Alert.alert("Error", "Failed to construct wallet. Try again.");
     } finally {
@@ -106,7 +103,6 @@ export default function WelcomePage(): React.JSX.Element {
     }
   };
 
-  // --- Render Steps ---
   const renderStep1 = () => (
     <View style={styles.formContainer}>
       <Text style={styles.title}>Welcome to Hop Pay</Text>
@@ -147,32 +143,36 @@ export default function WelcomePage(): React.JSX.Element {
 
   const renderStep3 = () => (
     <View style={styles.formContainer}>
+      <Text style={styles.title}>About You</Text>
+      <Text style={styles.subtitle}>Help us identify you on the mesh network.</Text>
+
+      <Text style={styles.label}>Full Name</Text>
+      <TextInput style={styles.input} placeholder="e.g. Ravi Kumar" placeholderTextColor={THEME.textMuted} value={name} onChangeText={setName} />
+
+      <Text style={styles.label}>Date of Birth</Text>
+      <TextInput style={styles.input} placeholder="DD/MM/YYYY" placeholderTextColor={THEME.textMuted} value={dob} onChangeText={setDob} keyboardType="numbers-and-punctuation" />
+
+      <Text style={styles.label}>Gender</Text>
+      <TextInput style={styles.input} placeholder="e.g. Male / Female" placeholderTextColor={THEME.textMuted} value={gender} onChangeText={setGender} />
+
+      <TouchableOpacity style={styles.primaryButton} onPress={handlePersonalInfoSubmit}>
+        <Text style={styles.primaryButtonText}>Continue</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderStep4 = () => (
+    <View style={styles.formContainer}>
       <Text style={styles.title}>Link Your Bank</Text>
-      <Text style={styles.subtitle}>Decentro uses this to settle funds directly to your bank account when offline transactions hit the mesh gateway.</Text>
-      
+      <Text style={styles.subtitle}>Decentro uses this to settle funds directly to your bank account.</Text>
+
       <Text style={styles.label}>Real Bank UPI ID (Destination)</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="e.g. name@icici"
-        placeholderTextColor={THEME.textMuted}
-        autoCapitalize="none"
-        value={realUpiId}
-        onChangeText={setRealUpiId}
-      />
+      <TextInput style={styles.input} placeholder="e.g. name@icici" placeholderTextColor={THEME.textMuted} autoCapitalize="none" value={realUpiId} onChangeText={setRealUpiId} />
 
       <Text style={styles.label}>Choose a Hop Pay Handle</Text>
       <View style={styles.handleInputContainer}>
-        <TextInput
-          style={[styles.input, { flex: 1, marginBottom: 0, borderRightWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 }]}
-          placeholder="yourname"
-          placeholderTextColor={THEME.textMuted}
-          autoCapitalize="none"
-          value={hopHandle}
-          onChangeText={setHopHandle}
-        />
-        <View style={styles.handleSuffix}>
-          <Text style={styles.handleSuffixText}>@hoppay</Text>
-        </View>
+        <TextInput style={[styles.input, { flex: 1, marginBottom: 0, borderRightWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 }]} placeholder="yourname" placeholderTextColor={THEME.textMuted} autoCapitalize="none" value={hopHandle} onChangeText={setHopHandle} />
+        <View style={styles.handleSuffix}><Text style={styles.handleSuffixText}>@hoppay</Text></View>
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={handleUpiSubmit}>
@@ -181,29 +181,15 @@ export default function WelcomePage(): React.JSX.Element {
     </View>
   );
 
-  const renderStep4 = () => (
+  const renderStep5 = () => (
     <View style={styles.formContainer}>
       <Text style={styles.title}>Secure Your Wallet</Text>
-      <Text style={styles.subtitle}>Write down this 12-word seed phrase. It is the ONLY way to recover your funds if you lose your device.</Text>
-      
+      <Text style={styles.subtitle}>Write down this 12-word seed phrase to recover your funds offline.</Text>
       <View style={styles.seedBox}>
         <Text style={styles.seedText}>{seedPhrase}</Text>
       </View>
-
-      <TouchableOpacity 
-        style={[styles.primaryButton, isCreating && { opacity: 0.7 }]} 
-        onPress={finalizeWallet}
-        disabled={isCreating}
-      >
-        {isCreating ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryButtonText}>I've Saved It - Generate Wallet</Text>
-        )}
-      </TouchableOpacity>
-      
-      <TouchableOpacity style={styles.secondaryButton}>
-        <Text style={styles.secondaryButtonText}>Import Existing Wallet</Text>
+      <TouchableOpacity style={[styles.primaryButton, isCreating && { opacity: 0.7 }]} onPress={finalizeWallet} disabled={isCreating}>
+        {isCreating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>I've Saved It - Generate Wallet</Text>}
       </TouchableOpacity>
     </View>
   );
@@ -211,160 +197,36 @@ export default function WelcomePage(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
-        
-        {/* Abstract Background Elements */}
         <View style={styles.blob1} />
         <View style={styles.blob2} />
-
         <BlurView intensity={30} tint="dark" style={styles.glassCard}>
           {step === 1 && renderStep1()}
           {step === 2 && renderStep2()}
           {step === 3 && renderStep3()}
           {step === 4 && renderStep4()}
+          {step === 5 && renderStep5()}
         </BlurView>
-
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: THEME.bg,
-  },
-  keyboardView: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  blob1: {
-    position: "absolute",
-    top: "10%",
-    left: "-20%",
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: THEME.primary,
-    opacity: 0.3,
-    transform: [{ scale: 1.5 }],
-  },
-  blob2: {
-    position: "absolute",
-    bottom: "10%",
-    right: "-20%",
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: THEME.secondary,
-    opacity: 0.3,
-    transform: [{ scale: 1.5 }],
-  },
-  glassCard: {
-    width: "100%",
-    borderRadius: 24,
-    padding: 24,
-    backgroundColor: THEME.glassBg,
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  formContainer: {
-    width: "100%",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: THEME.text,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: THEME.textMuted,
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: THEME.textMuted,
-    textTransform: "uppercase",
-    marginBottom: 8,
-    letterSpacing: 1,
-  },
-  input: {
-    backgroundColor: "rgba(0,0,0,0.3)",
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    color: THEME.text,
-    fontSize: 16,
-    marginBottom: 16,
-  },
-  handleInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  handleSuffix: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    borderLeftWidth: 0,
-    borderTopRightRadius: 12,
-    borderBottomRightRadius: 12,
-    padding: 16,
-    justifyContent: "center",
-    height: 56, // Match the input height roughly
-  },
-  handleSuffixText: {
-    color: THEME.primary,
-    fontWeight: "800",
-  },
-  seedBox: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
-  },
-  seedText: {
-    color: "#fff",
-    fontSize: 18,
-    lineHeight: 28,
-    textAlign: "center",
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    letterSpacing: 1,
-  },
-  primaryButton: {
-    backgroundColor: THEME.primary,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    marginTop: 8,
-    shadowColor: THEME.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  primaryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  secondaryButton: {
-    marginTop: 16,
-    padding: 16,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    color: THEME.textMuted,
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  container: { flex: 1, backgroundColor: "transparent" },
+  keyboardView: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  blob1: { position: "absolute", top: "10%", left: "-20%", width: 300, height: 300, borderRadius: 150, backgroundColor: THEME.primary, opacity: 0.3, transform: [{ scale: 1.5 }] },
+  blob2: { position: "absolute", bottom: "10%", right: "-20%", width: 300, height: 300, borderRadius: 150, backgroundColor: THEME.secondary, opacity: 0.3, transform: [{ scale: 1.5 }] },
+  glassCard: { width: "100%", borderRadius: 24, padding: 24, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden" },
+  formContainer: { width: "100%" },
+  title: { fontSize: 28, fontWeight: "800", color: THEME.text, marginBottom: 8 },
+  subtitle: { fontSize: 14, color: THEME.textMuted, marginBottom: 24, lineHeight: 20 },
+  label: { fontSize: 12, fontWeight: "700", color: THEME.textMuted, textTransform: "uppercase", marginBottom: 8, letterSpacing: 1 },
+  input: { backgroundColor: "rgba(0,0,0,0.3)", borderColor: THEME.glassBorder, borderWidth: 1, borderRadius: 12, padding: 16, color: THEME.text, fontSize: 16, marginBottom: 16 },
+  handleInputContainer: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  handleSuffix: { backgroundColor: "rgba(0,0,0,0.5)", borderColor: THEME.glassBorder, borderWidth: 1, borderLeftWidth: 0, borderTopRightRadius: 12, borderBottomRightRadius: 12, padding: 16, justifyContent: "center", height: 56 },
+  handleSuffixText: { color: THEME.primary, fontWeight: "800" },
+  seedBox: { backgroundColor: "rgba(0,0,0,0.5)", borderColor: THEME.glassBorder, borderWidth: 1, borderRadius: 12, padding: 20, marginBottom: 24 },
+  seedText: { color: "#fff", fontSize: 18, lineHeight: 28, textAlign: "center", fontFamily: Platform.OS === "ios" ? "Courier" : "monospace", letterSpacing: 1 },
+  primaryButton: { backgroundColor: THEME.primary, borderRadius: 12, padding: 16, alignItems: "center", marginTop: 8 },
+  primaryButtonText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.5 },
 });

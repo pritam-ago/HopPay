@@ -6,15 +6,19 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ScrollView,
+  Switch,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
+import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut } from "react-native-reanimated";
+import { useBle } from "@/contexts/BleContext";
+import DynamicBackground from "@/components/DynamicBackground";
 
 // --- Theme Constants (Glassmorphism + Dark Mode) ---
 const THEME = {
   bg: "#0F172A",
-  glassBg: "rgba(255, 255, 255, 0.05)",
-  glassBorder: "rgba(255, 255, 255, 0.1)",
+  glassBg: "rgba(255, 255, 255, 0.08)",
+  glassBorder: "rgba(255, 255, 255, 0.2)",
   primary: "#3B82F6",
   secondary: "#8B5CF6",
   success: "#10B981",
@@ -24,62 +28,80 @@ const THEME = {
 };
 
 export default function RewardsScreen(): React.JSX.Element {
-  // Mock data for hackathon
+  const bleContext = useBle() as any;
+  const isRelayEnabled = bleContext.isRelayEnabled ?? true;
+  const setIsRelayEnabled = bleContext.setIsRelayEnabled;
+
   const [packetsRelayed, setPacketsRelayed] = useState(14);
-  const [meshPoints, setMeshPoints] = useState(1400); // 100 points per packet
+  const meshPoints = packetsRelayed * 0.001; // Dynamically multiply Hop Coins
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleRedeem = () => {
-    // Mock redeem action
-    setMeshPoints(0);
-    alert("Successfully redeemed 1400 Mesh Points for ₹14.00 INR!");
+    setShowSuccess(true);
+    setTimeout(() => {
+      setPacketsRelayed(0);
+      setShowSuccess(false);
+    }, 2500);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Background Blobs */}
-      <View style={styles.blob1} />
-      <View style={styles.blob2} />
+      <DynamicBackground />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Relay Rewards</Text>
-          <Text style={styles.subtitle}>
-            Earn points by keeping Hop Pay open in the background to relay packets for others.
-          </Text>
+          <Text style={styles.title}>Hop Rewards</Text>
         </View>
 
         {/* Central glowing stat card */}
-        <BlurView intensity={40} tint="dark" style={styles.glowingCard}>
+        <View style={{ alignItems: "center", marginBottom: 40, marginTop: 16 }}>
           <View style={styles.glowRing}>
             <Text style={styles.pointsText}>{meshPoints}</Text>
-            <Text style={styles.pointsLabel}>MESH POINTS</Text>
+            <Text style={styles.pointsLabel}>HOP COINS (HC)</Text>
           </View>
-        </BlurView>
+          <Text style={[styles.subtitle, { textAlign: "center", marginTop: 24, marginHorizontal: 20 }]}>
+            Earn 0.001 HC for every single packet you securely relay in the background for offline users.
+          </Text>
+        </View>
 
         {/* Stats Row */}
         <View style={styles.statsRow}>
-          <BlurView intensity={20} tint="dark" style={styles.statBox}>
+          <BlurView intensity={50} tint="dark" style={styles.statBox}>
             <Feather name="radio" size={24} color={THEME.primary} style={styles.statIcon} />
             <Text style={styles.statValue}>{packetsRelayed}</Text>
             <Text style={styles.statTitle}>Packets Relayed</Text>
           </BlurView>
 
-          <BlurView intensity={20} tint="dark" style={styles.statBox}>
+          <BlurView intensity={50} tint="dark" style={styles.statBox}>
             <Feather name="wifi" size={24} color={THEME.success} style={styles.statIcon} />
             <Text style={styles.statValue}>2</Text>
             <Text style={styles.statTitle}>Gateway Uploads</Text>
           </BlurView>
         </View>
 
-        {/* Redeem Section */}
-        <BlurView intensity={30} tint="dark" style={styles.redeemCard}>
+        {/* Network Participation Toggle */}
+        <BlurView intensity={70} tint="dark" style={[styles.redeemCard, { marginBottom: 24 }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <Text style={styles.redeemTitle}>Network Participation</Text>
+            <Switch 
+              value={isRelayEnabled} 
+              onValueChange={(val) => setIsRelayEnabled && setIsRelayEnabled(val)}
+              trackColor={{ false: "#333", true: THEME.success }}
+              ios_backgroundColor="#333"
+            />
+          </View>
+          <Text style={styles.redeemSub}>Keep this toggled ON to securely transfer packets in the background and earn HC rewards. Disable to save battery.</Text>
+        </BlurView>
+
+        {/* Redeem Section - Fixed Alignment */}
+        <BlurView intensity={70} tint="dark" style={styles.redeemCard}>
           <View style={styles.redeemHeader}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.redeemTitle}>Convert to INR</Text>
-              <Text style={styles.redeemSub}>100 Points = ₹1.00</Text>
+              <Text style={styles.redeemSub}>1 HC = ₹10.00</Text>
             </View>
-            <Text style={styles.convertValue}>₹{(meshPoints / 100).toFixed(2)}</Text>
+            <Text style={styles.convertValue}>₹{(meshPoints * 10).toFixed(2)}</Text>
           </View>
 
           <TouchableOpacity 
@@ -91,8 +113,24 @@ export default function RewardsScreen(): React.JSX.Element {
             <Feather name="arrow-right" size={20} color="#FFF" style={{ marginLeft: 8 }} />
           </TouchableOpacity>
         </BlurView>
-
       </ScrollView>
+
+      {/* Success Animation Overlay */}
+      {showSuccess && (
+        <Animated.View 
+          entering={FadeIn} 
+          exiting={FadeOut} 
+          style={StyleSheet.absoluteFillObject}
+        >
+          <BlurView intensity={90} tint="dark" style={styles.successOverlay}>
+            <Animated.View entering={ZoomIn.springify()} exiting={ZoomOut} style={{ alignItems: "center" }}>
+              <Feather name="check-circle" size={100} color={THEME.success} />
+              <Text style={styles.successText}>₹{(meshPoints * 10).toFixed(2)} Settled!</Text>
+              <Text style={styles.successSubtext}>Funds have been mapped to your UPI ID</Text>
+            </Animated.View>
+          </BlurView>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -100,35 +138,16 @@ export default function RewardsScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: THEME.bg,
-  },
-  blob1: {
-    position: "absolute",
-    top: 100,
-    left: -50,
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: THEME.accent,
-    opacity: 0.15,
-  },
-  blob2: {
-    position: "absolute",
-    bottom: -50,
-    right: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: THEME.secondary,
-    opacity: 0.15,
+    backgroundColor: "transparent",
   },
   scrollContent: {
     padding: 24,
-    paddingTop: 40,
+    paddingTop: 60,
+    paddingBottom: 120, // Tab bar clearance
   },
   header: {
-    marginBottom: 40,
-    alignItems: "center",
+    marginBottom: 20,
+    alignItems: "flex-start",
   },
   title: {
     fontSize: 28,
@@ -139,9 +158,8 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: THEME.textMuted,
-    textAlign: "center",
     lineHeight: 22,
-    paddingHorizontal: 20,
+    marginTop: 8,
   },
   glowingCard: {
     borderRadius: 24,
@@ -159,7 +177,7 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 100,
     borderWidth: 8,
-    borderColor: "rgba(245, 158, 11, 0.3)", // Amber glow
+    borderColor: "rgba(245, 158, 11, 0.4)", // Amber brighter glow
     justifyContent: "center",
     alignItems: "center",
     shadowColor: THEME.accent,
@@ -167,7 +185,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 20,
     elevation: 10,
-    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
   },
   pointsText: {
     fontSize: 48,
@@ -217,6 +235,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.glassBg,
     borderColor: THEME.glassBorder,
     borderWidth: 1,
+    overflow: "hidden",
   },
   redeemHeader: {
     flexDirection: "row",
@@ -235,8 +254,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   convertValue: {
-    fontSize: 24,
-    fontWeight: "800",
+    fontSize: 28,
+    fontWeight: "900",
     color: THEME.success,
   },
   redeemBtn: {
@@ -248,12 +267,30 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   redeemBtnDisabled: {
-    backgroundColor: THEME.glassBorder,
+    backgroundColor: "rgba(255,255,255,0.1)",
     opacity: 0.5,
   },
   redeemBtnText: {
     fontSize: 16,
     fontWeight: "700",
     color: "#FFF",
+  },
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 100,
+  },
+  successText: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: THEME.text,
+    marginTop: 24,
+  },
+  successSubtext: {
+    fontSize: 16,
+    color: THEME.textMuted,
+    marginTop: 8,
+    fontWeight: "600",
   }
 });

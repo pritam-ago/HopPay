@@ -11,6 +11,16 @@ import Constants from 'expo-constants';
 import { BleManager } from "react-native-ble-plx";
 import BleAdvertiser from "react-native-ble-advertiser";
 import { useNetInfo } from "@react-native-community/netinfo";
+import * as Notifications from "expo-notifications";
+
+// Configure notifications to show even when app is active
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 import {
   MessageState,
   broadcastOverBle,
@@ -404,6 +414,8 @@ interface BleContextType {
 
   // Force re-render trigger for UI updates
   forceUpdate: () => void;
+  isRelayEnabled: boolean;
+  setIsRelayEnabled: (val: boolean) => void;
 }
 
 const BleContext = createContext<BleContextType | undefined>(undefined);
@@ -415,6 +427,7 @@ interface BleProviderProps {
 export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [, forceRerender] = useState(0);
+  const [isRelayEnabled, setIsRelayEnabled] = useState(true);
 
   // Use NetInfo to get real network connectivity status
   const netInfo = useNetInfo();
@@ -504,19 +517,34 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
       console.log(`✅ [MESH] Message preview: ${fullMessage.substring(0, 150)}...`);
       console.log(`🌐 [MESH] Device has internet: ${hasInternet}`);
 
+      // Firebase / Local Push Notification Trigger
+      if (Platform.OS !== "web" && !entry.isAck) {
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: "New Message Relayed 📻",
+            body: `Relayed payload: ${fullMessage.substring(0, 60)}...`,
+          },
+          trigger: null, // trigger immediately
+        });
+      }
+
       forceUpdate();
 
       if (hasInternet && !entry.isAck) {
         console.log(`🚀 [MESH] This device has internet - submitting to blockchain...`);
         handleApiResponse(id, fullMessage);
       } else if (!hasInternet) {
-        console.log(`📡 [MESH] This device has no internet - re-broadcasting chunks...`);
-        // Also ensure re-broadcasted chunks are in order
-        const orderedChunks = [];
-        for (let i = 1; i <= entry.totalChunks; i++) {
-          orderedChunks.push(entry.chunks.get(i)!);
+        if (isRelayEnabled) {
+          console.log(`📡 [MESH] This device has no internet - re-broadcasting chunks...`);
+          // Also ensure re-broadcasted chunks are in order
+          const orderedChunks = [];
+          for (let i = 1; i <= entry.totalChunks; i++) {
+            orderedChunks.push(entry.chunks.get(i)!);
+          }
+          addToBroadcastQueue(id, orderedChunks);
+        } else {
+          console.log(`📡 [MESH] Relay mode is OFF - ignoring rebroadcast for message ${id}`);
         }
-        addToBroadcastQueue(id, orderedChunks);
       } else if (entry.isAck) {
         console.log(`✅ [MESH] Received ACK response - transaction complete`);
       }
@@ -837,6 +865,8 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
     hasInternet,
     masterState: masterStateRef.current,
     broadcastQueue: broadcastQueueRef.current,
+    isRelayEnabled,
+    setIsRelayEnabled,
 
     // Actions
     broadcastMessage,

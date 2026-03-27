@@ -1,368 +1,120 @@
-import React, { useEffect, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  Animated,
-  TouchableOpacity,
-  ScrollView,
-} from "react-native";
+import React from "react";
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { useBle } from "@/contexts/BleContext";
+import DynamicBackground from "@/components/DynamicBackground";
 
-// --- Theme Constants (Glassmorphism + Dark Mode) ---
 const THEME = {
-  bg: "#0F172A",
-  glassBg: "rgba(255, 255, 255, 0.05)",
-  glassBorder: "rgba(255, 255, 255, 0.1)",
-  primary: "#3B82F6",
-  secondary: "#8B5CF6",
-  success: "#10B981",
-  text: "#F8FAFC",
-  textMuted: "#94A3B8",
+  bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
+  primary: "#3B82F6", success: "#10B981", danger: "#EF4444", text: "#F8FAFC", textMuted: "#94A3B8"
 };
 
-export default function MeshTrackerPage(): React.JSX.Element {
-  const { isBroadcasting, getCurrentBroadcastInfo, masterState, hasInternet } = useBle();
-  const currentBroadcast = getCurrentBroadcastInfo();
+export default function PacketAdminScreen(): React.JSX.Element {
+  const bleContext = useBle() as any;
+  const isRelayEnabled = bleContext.isRelayEnabled ?? true;
+  const setIsRelayEnabled = bleContext.setIsRelayEnabled;
+  const masterState = bleContext.masterState;
 
-  // Extract the state of the active broadcast
-  const activeState = currentBroadcast?.id ? masterState.get(currentBroadcast.id) : null;
-  const isSettled = activeState?.isAck;
-  
-  // Animation Values
-  const pulse1 = useRef(new Animated.Value(1)).current;
-  const pulse2 = useRef(new Animated.Value(1)).current;
-  const pulseOpacity1 = useRef(new Animated.Value(0.6)).current;
-  const pulseOpacity2 = useRef(new Animated.Value(0.4)).current;
-
-  // Mock Hop Counter for visuals
-  const [hopCount, setHopCount] = useState(0);
-
-  useEffect(() => {
-    let anim1: Animated.CompositeAnimation;
-    let anim2: Animated.CompositeAnimation;
-
-    if (isBroadcasting && !isSettled) {
-      const createPulse = (scaleVal: Animated.Value, opacityVal: Animated.Value, delay: number) => {
-        return Animated.loop(
-          Animated.sequence([
-            Animated.delay(delay),
-            Animated.parallel([
-              Animated.timing(scaleVal, {
-                toValue: 4,
-                duration: 2500,
-                useNativeDriver: true,
-              }),
-              Animated.timing(opacityVal, {
-                toValue: 0,
-                duration: 2500,
-                useNativeDriver: true,
-              })
-            ]),
-            Animated.parallel([
-              Animated.timing(scaleVal, { toValue: 1, duration: 0, useNativeDriver: true }),
-              Animated.timing(opacityVal, { toValue: 0.6, duration: 0, useNativeDriver: true })
-            ])
-          ])
-        );
-      };
-
-      anim1 = createPulse(pulse1, pulseOpacity1, 0);
-      anim2 = createPulse(pulse2, pulseOpacity2, 1250);
-      anim1.start();
-      anim2.start();
-
-      // Mock hop count increment organically over time
-      const hopInterval = setInterval(() => {
-        setHopCount(prev => prev < 3 ? prev + 1 : prev);
-      }, 4000);
-
-      return () => {
-        anim1.stop();
-        anim2.stop();
-        clearInterval(hopInterval);
-        pulse1.setValue(1);
-        pulse2.setValue(1);
-      };
-    } else {
-      pulse1.setValue(1);
-      pulse2.setValue(1);
-      pulseOpacity1.setValue(0);
-      pulseOpacity2.setValue(0);
-    }
-  }, [isBroadcasting, isSettled]);
-
-  const renderTimelineItem = (title: string, subtitle: string, isActive: boolean, isCompleted: boolean, isLast: boolean = false) => {
-    return (
-      <View style={styles.timelineItem}>
-        {/* Node & Line */}
-        <View style={styles.timelineTrack}>
-          <View style={[
-            styles.timelineNode, 
-            isCompleted && styles.nodeCompleted, 
-            isActive && !isCompleted && styles.nodeActive
-          ]}>
-            {isCompleted && <Feather name="check" size={12} color="#FFF" />}
-          </View>
-          {!isLast && <View style={[styles.timelineLine, (isCompleted || isActive) && styles.lineActive]} />}
-        </View>
-        
-        {/* Content */}
-        <View style={styles.timelineContent}>
-          <Text style={[styles.timelineTitle, (isActive || isCompleted) && styles.textActive]}>{title}</Text>
-          <Text style={styles.timelineSubtitle}>{subtitle}</Text>
-        </View>
-      </View>
-    );
-  };
+  const packets = Array.from(masterState.values());
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Background Blobs */}
-      <View style={styles.blob1} />
-      <View style={styles.blob2} />
+      <DynamicBackground />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Relay Hop Radar</Text>
+      </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        
-        {/* Radar Section */}
-        <View style={styles.radarSection}>
-          <View style={styles.radarWrapper}>
-            <Animated.View style={[styles.pulseCircle, { transform: [{ scale: pulse1 }], opacity: pulseOpacity1 }]} />
-            <Animated.View style={[styles.pulseCircle, { transform: [{ scale: pulse2 }], opacity: pulseOpacity2 }]} />
-            <View style={[styles.radarCenter, isSettled && styles.radarCenterSuccess]}>
-              <Feather name={isSettled ? "check" : (hasInternet ? "wifi" : "radio")} size={32} color="#FFF" />
-            </View>
-          </View>
-
-          <Text style={styles.radarStatusText}>
-            {isSettled ? "Transaction Settled!" : (isBroadcasting ? "Broadcasting Offline..." : "Mesh Tracker Ready")}
-          </Text>
-          <Text style={styles.radarSubText}>
-            {isBroadcasting && !isSettled ? `Relayed to ${hopCount} nearby devices` : "Hop Pay mesh network active"}
-          </Text>
+        <View style={styles.statsRow}>
+          <BlurView intensity={70} tint="dark" style={styles.statBox}>
+            <Text style={styles.statValue}>{packets.length}</Text>
+            <Text style={styles.statLabel}>Total Payloads</Text>
+          </BlurView>
+          <BlurView intensity={70} tint="dark" style={styles.statBox}>
+            <Text style={[styles.statValue, { color: THEME.success }]}>{packets.filter((p: any) => p.isComplete).length}</Text>
+            <Text style={styles.statLabel}>Fully Decoded</Text>
+          </BlurView>
         </View>
 
-        {/* Timeline Section */}
-        <BlurView intensity={30} tint="dark" style={styles.timelineCard}>
-          <Text style={styles.cardTitle}>Packet Journey</Text>
-          
-          {renderTimelineItem(
-            "Payload Signed Offline",
-            "Cryptographically verified intention to pay",
-            true, // Active
-            isBroadcasting || isSettled || false // Completed
-          )}
-          
-          {renderTimelineItem(
-            "Broadcasting via BLE",
-            "Chunking packet and blasting to nearby physical devices",
-            isBroadcasting,
-            hopCount > 0 || isSettled || false
-          )}
-          
-          {renderTimelineItem(
-            `Relayed via Mesh (Hops: ${hopCount})`,
-            "Nearby phones caught the packet and are re-broadcasting",
-            hopCount > 0 && !isSettled,
-            hopCount > 1 || isSettled || false
-          )}
-          
-          {renderTimelineItem(
-            "Found Internet Gateway",
-            "A device with cellular connected to the mainland",
-            isSettled || false,
-            isSettled || false
-          )}
+        <Text style={[styles.headerSubtitle, { textAlign: 'center', marginHorizontal: 30, marginBottom: 32 }]}>
+          Live view of encrypted packets crossing your device node
+        </Text>
 
-          {renderTimelineItem(
-            "Decentro API Settlement",
-            "Real ₹ INR funds hit the receiver's connected bank account",
-            isSettled || false,
-            isSettled || false,
-            true
-          )}
-        </BlurView>
-        
-        {isSettled && (
-          <TouchableOpacity style={styles.receiptBtn}>
-            <Feather name="file-text" size={20} color="#FFF" style={{marginRight: 8}}/>
-            <Text style={styles.receiptBtnText}>View Receipt</Text>
-          </TouchableOpacity>
+        <Text style={styles.logHeader}>Live Feed Logs</Text>
+
+        {packets.length === 0 ? (
+          <Text style={styles.emptyText}>No background packets relayed yet...</Text>
+        ) : (
+          packets.reverse().map((packet: any) => (
+            <BlurView intensity={60} tint="dark" style={styles.packetCard} key={packet.id}>
+              <View style={styles.packetRow}>
+                <View style={styles.packetLeft}>
+                  <Text style={styles.packetId}>ID: {Math.max(1000, packet.id).toString().slice(0,6)}</Text>
+                  <Text style={styles.packetChunks}>Chunks: {packet.chunks.size}/{packet.totalChunks}</Text>
+                </View>
+                <View style={[styles.packetBadge, { backgroundColor: packet.isComplete ? "rgba(16, 185, 129, 0.2)" : "rgba(245, 158, 11, 0.2)" }]}>
+                  <Text style={[styles.packetBadgeText, { color: packet.isComplete ? THEME.success : "#F59E0B" }]}>
+                    {packet.isComplete ? "Decoded" : "Receiving"}
+                  </Text>
+                </View>
+              </View>
+              {packet.isComplete && (
+                <Text style={styles.packetData} numberOfLines={2}>
+                  Payload: {packet.fullMessage}
+                </Text>
+              )}
+            </BlurView>
+          ))
         )}
-
       </ScrollView>
+
+      {/* Re-broadcast Intercept Overlay */}
+      {!isRelayEnabled && (
+        <View style={styles.offlineOverlayWrapper}>
+          <BlurView intensity={80} tint="dark" style={styles.overlayInner}>
+            <View style={styles.overlayBox}>
+              <Feather name="shield-off" size={60} color={THEME.textMuted} style={{ marginBottom: 16 }} />
+              <Text style={styles.overlayTitle}>Relay Mode is Offline</Text>
+              <Text style={styles.overlayDesc}>
+                Your device is currently ignoring all incoming packets to conserve battery. You are not actively participating in the Hop Pay mesh.
+              </Text>
+              <TouchableOpacity style={styles.turnOnBtn} onPress={() => setIsRelayEnabled(true)}>
+                <Text style={styles.turnOnText}>Turn On Relay</Text>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: THEME.bg,
-  },
-  blob1: {
-    position: "absolute",
-    top: 50,
-    left: -100,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: THEME.secondary,
-    opacity: 0.15,
-  },
-  blob2: {
-    position: "absolute",
-    bottom: 50,
-    right: -100,
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: THEME.primary,
-    opacity: 0.15,
-  },
-  scrollContent: {
-    padding: 24,
-    paddingTop: 40,
-  },
-  radarSection: {
-    alignItems: "center",
-    justifyContent: "center",
-    height: 280,
-    marginBottom: 16,
-  },
-  radarWrapper: {
-    width: 80,
-    height: 80,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  radarCenter: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: THEME.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 10,
-    shadowColor: THEME.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-  radarCenterSuccess: {
-    backgroundColor: THEME.success,
-    shadowColor: THEME.success,
-  },
-  pulseCircle: {
-    position: "absolute",
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: THEME.primary,
-    zIndex: 1,
-  },
-  radarStatusText: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: THEME.text,
-    marginTop: 40,
-    letterSpacing: 0.5,
-  },
-  radarSubText: {
-    fontSize: 14,
-    color: THEME.primary,
-    marginTop: 8,
-    fontWeight: "600",
-  },
-  timelineCard: {
-    borderRadius: 24,
-    padding: 24,
-    backgroundColor: THEME.glassBg,
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: THEME.text,
-    marginBottom: 24,
-  },
-  timelineItem: {
-    flexDirection: "row",
-    marginBottom: 0,
-  },
-  timelineTrack: {
-    alignItems: "center",
-    width: 30,
-    marginRight: 16,
-  },
-  timelineNode: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: THEME.bg,
-    borderWidth: 2,
-    borderColor: THEME.glassBorder,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 2,
-  },
-  nodeActive: {
-    borderColor: THEME.primary,
-    backgroundColor: "rgba(59, 130, 246, 0.2)",
-  },
-  nodeCompleted: {
-    borderColor: THEME.success,
-    backgroundColor: THEME.success,
-  },
-  timelineLine: {
-    width: 2,
-    height: 50,
-    backgroundColor: THEME.glassBorder,
-    marginVertical: -2,
-    zIndex: 1,
-  },
-  lineActive: {
-    backgroundColor: THEME.primary,
-    opacity: 0.5,
-  },
-  timelineContent: {
-    flex: 1,
-    paddingBottom: 30,
-  },
-  timelineTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: THEME.textMuted,
-    marginBottom: 4,
-  },
-  textActive: {
-    color: THEME.text,
-  },
-  timelineSubtitle: {
-    fontSize: 13,
-    color: THEME.textMuted,
-    opacity: 0.7,
-  },
-  receiptBtn: {
-    flexDirection: "row",
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
-    marginTop: 24,
-    padding: 16,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  receiptBtnText: {
-    color: THEME.text,
-    fontWeight: "700",
-    fontSize: 15,
-  }
+  container: { flex: 1, backgroundColor: "transparent" },
+  header: { padding: 24, paddingTop: 60, paddingBottom: 16 },
+  headerTitle: { fontSize: 24, fontWeight: "800", color: THEME.text, marginBottom: 4 },
+  headerSubtitle: { fontSize: 13, color: THEME.textMuted, lineHeight: 18 },
+  scrollContent: { paddingHorizontal: 24, paddingBottom: 100 },
+  statsRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 32 },
+  statBox: { flex: 1, padding: 16, borderRadius: 16, alignItems: "center", marginHorizontal: 4, borderWidth: 1, borderColor: THEME.glassBorder },
+  statValue: { fontSize: 28, fontWeight: "900", color: THEME.text, marginBottom: 4 },
+  statLabel: { fontSize: 11, fontWeight: "700", color: THEME.textMuted, textTransform: "uppercase" },
+  logHeader: { fontSize: 16, fontWeight: "800", color: THEME.text, marginBottom: 16 },
+  emptyText: { color: THEME.textMuted, textAlign: "center", marginTop: 40, fontStyle: "italic" },
+  packetCard: { padding: 16, borderRadius: 12, borderWidth: 1, borderColor: THEME.glassBorder, marginBottom: 12 },
+  packetRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  packetLeft: { flex: 1 },
+  packetId: { color: THEME.text, fontWeight: "700", fontSize: 14, marginBottom: 2 },
+  packetChunks: { color: THEME.textMuted, fontSize: 12 },
+  packetBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  packetBadgeText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  packetData: { marginTop: 12, color: THEME.primary, fontSize: 12, fontFamily: "monospace", padding: 8, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 8, overflow: "hidden" },
+  offlineOverlayWrapper: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
+  overlayInner: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  overlayBox: { width: "100%", padding: 32, borderRadius: 24, backgroundColor: "rgba(0,0,0,0.6)", borderWidth: 1, borderColor: THEME.glassBorder, alignItems: "center" },
+  overlayTitle: { fontSize: 22, fontWeight: "800", color: THEME.text, marginBottom: 16 },
+  overlayDesc: { fontSize: 14, color: THEME.textMuted, textAlign: "center", lineHeight: 22, marginBottom: 32 },
+  turnOnBtn: { backgroundColor: THEME.success, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16, width: "100%", alignItems: "center" },
+  turnOnText: { color: "#FFF", fontSize: 16, fontWeight: "700" }
 });

@@ -1,170 +1,156 @@
 import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl
-} from "react-native";
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, RefreshControl, TextInput } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useWallet } from "@/contexts/WalletContext";
 import { useBle } from "@/contexts/BleContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Clipboard from "expo-clipboard";
+import DynamicBackground from "@/components/DynamicBackground";
 
-// --- Theme Constants (Glassmorphism + Dark Mode) ---
 const THEME = {
-  bg: "#0F172A",
-  glassBg: "rgba(255, 255, 255, 0.05)",
-  glassBorder: "rgba(255, 255, 255, 0.1)",
-  primary: "#3B82F6",
-  secondary: "#8B5CF6",
-  success: "#10B981",
-  text: "#F8FAFC",
-  textMuted: "#94A3B8",
-  danger: "#EF4444"
+  bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
+  primary: "#3B82F6", secondary: "#8B5CF6", success: "#10B981", text: "#F8FAFC", textMuted: "#94A3B8", danger: "#EF4444"
 };
 
-// Mock Recent Transactions Data
 const MOCK_TRANSACTIONS = [
-  { id: "1", type: "send", name: "Ravi Kumar", amount: "550", date: "Today, 10:24 AM", status: "Settled" },
-  { id: "2", type: "receive", name: "Alice", amount: "1,200", date: "Yesterday", status: "Settled" },
-  { id: "3", type: "send", name: "Coffee Shop", amount: "240", date: "Mar 22", status: "Settled" },
-  { id: "4", type: "send", name: "David (Offline)", amount: "150", date: "Mar 21", status: "Relaying" },
+  { id: "1", type: "send", name: "Ravi Kumar", amount: "55", date: "Today, 10:24 AM", status: "Settled" },
+  { id: "2", type: "receive", name: "Alice", amount: "120", date: "Yesterday", status: "Settled" },
+  { id: "3", type: "send", name: "Coffee Shop", amount: "24", date: "Mar 22", status: "Settled" },
+  { id: "4", type: "send", name: "David (Offline)", amount: "15", date: "Mar 21", status: "Relaying" },
+];
+
+const MOCK_PEOPLE = [
+  { id: "alice@hoppay", name: "Alice", letter: "A", color: "#3B82F6" },
+  { id: "bob@hoppay", name: "Bob", letter: "B", color: "#8B5CF6" },
+  { id: "merchant@icici", name: "Merchant", letter: "M", color: "#10B981" },
+  { id: "david@hoppay", name: "David", letter: "D", color: "#F59E0B" },
+  { id: "emma@hoppay", name: "Emma", letter: "E", color: "#EC4899" },
+  { id: "frank@hoppay", name: "Frank", letter: "F", color: "#A855F7" },
+  { id: "grace@hoppay", name: "Grace", letter: "G", color: "#F43F5E" },
+  { id: "hannah@hoppay", name: "Hannah", letter: "H", color: "#14B8A6" },
+  { id: "ian@hoppay", name: "Ian", letter: "I", color: "#EAB308" },
+  { id: "jack@hoppay", name: "Jack", letter: "J", color: "#6366F1" },
+  { id: "karen@hoppay", name: "Karen", letter: "K", color: "#84CC16" },
 ];
 
 export default function HomeDashboard(): React.JSX.Element {
   const { userWalletAddress } = useWallet();
-  const { hasInternet } = useBle(); // NetInfo wrapped in BleContext
-  
-  const [profile, setProfile] = useState<{ realUpiId: string; hopHandle: string } | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const bleContext = useBle() as any;
+  const isRelayEnabled = bleContext.isRelayEnabled ?? true;
+  const setIsRelayEnabled = bleContext.setIsRelayEnabled;
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  const [profile, setProfile] = useState<{ realUpiId: string; hopHandle: string; name?: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isBalanceVisible, setIsBalanceVisible] = useState(false);
+  const [showAllPeople, setShowAllPeople] = useState(false);
+
+  useEffect(() => { loadProfile(); }, []);
 
   const loadProfile = async () => {
     try {
       const p = await AsyncStorage.getItem("@user_profile");
       if (p) setProfile(JSON.parse(p));
+      else setProfile({ hopHandle: "user@hoppay", realUpiId: "user@icici", name: "Ravi Kumar" });
     } catch {}
   };
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1500);
+    setTimeout(() => setRefreshing(false), 1500);
   }, []);
 
-  const handleAction = (route: any) => {
-    if(route === "mesh") {
-      router.push("/(tabs)/mesh");
-    } else if (route === "send") {
-      router.push("/transaction");
-    } else if (route === "receive") {
-      router.push("/receive"); // Assuming receive is outside tabs or update routing
-    }
+  const handleAction = (route: string) => {
+    if(route === "mesh") router.push("/(tabs)/mesh");
+    else if (route === "send") router.push("/transaction");
+    else if (route === "scan") router.push("/scan"); 
+    else if (route === "receive") router.push("/receive"); 
   };
+
+  const handleToggleOffline = () => { if(setIsRelayEnabled) setIsRelayEnabled(!isRelayEnabled); };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Background Blobs */}
-      <View style={styles.blob1} />
-      <View style={styles.blob2} />
-
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={THEME.primary} />}
-      >
-        {/* Header Row */}
+      <DynamicBackground />
+      <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={THEME.primary} />} showsVerticalScrollIndicator={false}>
+        
         <View style={styles.headerRow}>
-          <View>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/show")}>
             <Text style={styles.greeting}>Hello,</Text>
-            <Text style={styles.handleText}>{profile?.hopHandle || "user@hoppay"}</Text>
-          </View>
-          <View style={[styles.networkBadge, hasInternet ? styles.badgeOnline : styles.badgeOffline]}>
-            <View style={[styles.statusDot, { backgroundColor: hasInternet ? THEME.success : "#F59E0B" }]} />
-            <Text style={styles.networkText}>{hasInternet ? "Online" : "Mesh Mode"}</Text>
-          </View>
+            <Text style={styles.handleText}>{profile?.name || "Ravi Kumar"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.networkBadge, { borderColor: isRelayEnabled ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)" }]} onPress={handleToggleOffline}>
+            <View style={[styles.statusDot, { backgroundColor: isRelayEnabled ? THEME.success : THEME.danger }]} />
+            <Text style={styles.networkText}>{isRelayEnabled ? "Relay: ON" : "Relay: OFF"}</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Balance Card (Glassmorphism) */}
-        <BlurView intensity={30} tint="dark" style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Total Balance</Text>
-          <Text style={styles.balanceAmount}>₹5,000<Text style={styles.decimals}>.00</Text></Text>
-          <View style={styles.walletIdRow}>
-            <Text style={styles.walletIdText} numberOfLines={1} ellipsizeMode="middle">
-              {userWalletAddress || "0x..."}
-            </Text>
-            <Feather name="copy" size={14} color={THEME.textMuted} />
-          </View>
+        <BlurView intensity={90} tint="dark" style={styles.searchContainer}>
+          <Feather name="search" size={20} color={THEME.textMuted} style={styles.searchIcon} />
+          <TextInput style={styles.searchInput} placeholder="Search @hoppay ID to pay..." placeholderTextColor={THEME.textMuted} value={searchQuery} onChangeText={setSearchQuery} returnKeyType="search" onSubmitEditing={() => { if (searchQuery.trim()) router.push({ pathname: "/transaction", params: { initId: searchQuery } }); }}/>
         </BlurView>
 
-        {/* Quick Actions Row */}
+        <BlurView intensity={100} tint="dark" style={styles.balanceCard}>
+          <View style={styles.balanceHeaderRow}>
+            <Text style={styles.balanceLabel}>Total Balance</Text>
+            <TouchableOpacity onPress={() => setIsBalanceVisible(!isBalanceVisible)} style={{ padding: 4 }}>
+              <Feather name={isBalanceVisible ? "eye" : "eye-off"} size={16} color={THEME.textMuted} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={{ flexDirection: "row", alignItems: "baseline", marginBottom: 3 }}>
+            <Text style={styles.balanceAmount}>{isBalanceVisible ? "500" : "***"}</Text>
+            {isBalanceVisible && <Text style={styles.hcSymbol}> HC</Text>}
+          </View>
+
+          <TouchableOpacity style={styles.walletIdRow} onPress={() => Clipboard.setStringAsync(profile?.hopHandle || "user@hoppay")}>
+            <Text style={styles.walletIdText} numberOfLines={1}>{profile?.hopHandle || "user@hoppay"}</Text>
+            <Feather name="copy" size={14} color={THEME.textMuted} />
+          </TouchableOpacity>
+        </BlurView>
+
+        {/* Current Exchange Rate Indicator */}
+        <BlurView intensity={50} tint="dark" style={styles.rateCard}>
+          <Feather name="trending-up" size={16} color={THEME.success} style={{ marginRight: 8 }}/>
+          <Text style={styles.rateText}>Current Rate: <Text style={{ color: "#FFF", fontWeight: "800" }}>1 HC = ₹10</Text></Text>
+        </BlurView>
+
         <View style={styles.actionsContainer}>
-          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("send")}>
-            <View style={[styles.actionButton, { backgroundColor: THEME.primary }]}>
-              <Feather name="arrow-up-right" size={24} color="#FFF" />
-            </View>
-            <Text style={styles.actionLabel}>Send</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("receive")}>
-            <View style={[styles.actionButton, { backgroundColor: THEME.secondary }]}>
-              <Feather name="arrow-down-left" size={24} color="#FFF" />
-            </View>
-            <Text style={styles.actionLabel}>Receive</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem}>
-            <View style={[styles.actionButton, { backgroundColor: "rgba(255,255,255,0.1)" }]}>
-              <Feather name="maximize" size={24} color="#FFF" />
-            </View>
-            <Text style={styles.actionLabel}>Scan QR</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("mesh")}>
-            <View style={[styles.actionButton, { backgroundColor: "rgba(255,255,255,0.1)" }]}>
-              <Feather name="radio" size={24} color="#FFF" />
-            </View>
-            <Text style={styles.actionLabel}>Mesh</Text>
-          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("send")}><BlurView intensity={100} tint="dark" style={styles.actionButton}><Feather name="arrow-up-right" size={24} color="#FFF" /></BlurView><Text style={styles.actionLabel}>Send</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("scan")}><BlurView intensity={100} tint="dark" style={styles.actionButton}><Feather name="maximize" size={24} color="#FFF" /></BlurView><Text style={styles.actionLabel}>Scan QR</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("receive")}><BlurView intensity={100} tint="dark" style={styles.actionButton}><Feather name="grid" size={24} color="#FFF" /></BlurView><Text style={styles.actionLabel}>My QR</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.actionItem} onPress={() => handleAction("mesh")}><BlurView intensity={100} tint="dark" style={styles.actionButton}><Feather name="radio" size={24} color="#FFF" /></BlurView><Text style={styles.actionLabel}>Radar</Text></TouchableOpacity>
         </View>
 
-        {/* Recent Transactions */}
         <View style={styles.transactionsHeader}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
-          <TouchableOpacity>
-            <Text style={styles.seeAll}>See All</Text>
+          <Text style={styles.sectionTitle}>People</Text>
+          <TouchableOpacity onPress={() => setShowAllPeople(!showAllPeople)}>
+            <Text style={styles.seeAll}>{showAllPeople ? "Show Less" : "See All"}</Text>
           </TouchableOpacity>
         </View>
+        <View style={styles.gridContainer}>
+          {(showAllPeople ? MOCK_PEOPLE : MOCK_PEOPLE.slice(0, 4)).map((person) => (
+            <TouchableOpacity key={person.id} style={styles.gridItem} onPress={() => router.push({ pathname: "/transaction", params: { initId: person.id } })}>
+              <View style={[styles.personAvatar, { backgroundColor: person.color }]}><Text style={styles.personInitial}>{person.letter}</Text></View>
+              <Text style={styles.personName}>{person.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
+        <View style={[styles.transactionsHeader, { marginTop: 16 }]}>
+          <Text style={styles.sectionTitle}>Recent</Text>
+          <TouchableOpacity onPress={() => router.push("/history")}><Text style={styles.seeAll}>See All</Text></TouchableOpacity>
+        </View>
         <View style={styles.transactionsList}>
           {MOCK_TRANSACTIONS.map((tx) => (
-            <BlurView intensity={20} tint="dark" key={tx.id} style={styles.txCard}>
-              <View style={[styles.txIconBox, { backgroundColor: tx.type === 'send' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)' }]}>
-                <Feather 
-                  name={tx.type === 'send' ? "arrow-up-right" : "arrow-down-left"} 
-                  size={20} 
-                  color={tx.type === 'send' ? THEME.danger : THEME.success} 
-                />
-              </View>
-              <View style={styles.txInfo}>
-                <Text style={styles.txName}>{tx.name}</Text>
-                <Text style={styles.txDate}>{tx.date}</Text>
-              </View>
+            <BlurView intensity={80} tint="dark" key={tx.id} style={styles.txCard}>
+              <View style={[styles.txIconBox, { backgroundColor: tx.type === 'send' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)' }]}><Feather name={tx.type === 'send' ? "arrow-up-right" : "arrow-down-left"} size={20} color={tx.type === 'send' ? THEME.danger : THEME.success} /></View>
+              <View style={styles.txInfo}><Text style={styles.txName}>{tx.name}</Text><Text style={styles.txDate}>{tx.date}</Text></View>
               <View style={styles.txRight}>
-                <Text style={styles.txAmount}>
-                  {tx.type === 'send' ? "-" : "+"}₹{tx.amount}
-                </Text>
-                <Text style={[styles.txStatus, { color: tx.status === 'Settled' ? THEME.success : "#F59E0B" }]}>
-                  {tx.status}
-                </Text>
+                <Text style={styles.txAmount}>{tx.type === 'send' ? "-" : "+"} {isBalanceVisible ? `${tx.amount} HC` : "***"}</Text>
+                <Text style={[styles.txStatus, { color: tx.status === 'Settled' ? THEME.success : "#F59E0B" }]}>{tx.status}</Text>
               </View>
             </BlurView>
           ))}
@@ -175,214 +161,45 @@ export default function HomeDashboard(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: THEME.bg,
-  },
-  blob1: {
-    position: "absolute",
-    top: 0,
-    right: -50,
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: THEME.primary,
-    opacity: 0.25,
-    transform: [{ scaleX: 1.2 }, { scaleY: 1.5 }],
-  },
-  blob2: {
-    position: "absolute",
-    top: 250,
-    left: -100,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: THEME.secondary,
-    opacity: 0.2,
-  },
-  scrollContent: {
-    padding: 24,
-    paddingTop: 40,
-  },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  greeting: {
-    fontSize: 14,
-    color: THEME.textMuted,
-    fontWeight: "600",
-  },
-  handleText: {
-    fontSize: 20,
-    color: THEME.text,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  networkBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  badgeOnline: {
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
-    borderColor: "rgba(16, 185, 129, 0.3)",
-  },
-  badgeOffline: {
-    backgroundColor: "rgba(245, 158, 11, 0.1)",
-    borderColor: "rgba(245, 158, 11, 0.3)",
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  networkText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: THEME.text,
-  },
-  balanceCard: {
-    borderRadius: 24,
-    padding: 24,
-    backgroundColor: THEME.glassBg,
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    overflow: "hidden",
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  balanceLabel: {
-    fontSize: 14,
-    color: THEME.textMuted,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  balanceAmount: {
-    fontSize: 48,
-    fontWeight: "900",
-    color: THEME.text,
-    letterSpacing: -1,
-  },
-  decimals: {
-    fontSize: 28,
-    color: THEME.textMuted,
-  },
-  walletIdRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.3)",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    marginTop: 16,
-  },
-  walletIdText: {
-    color: THEME.textMuted,
-    fontSize: 12,
-    fontFamily: "monospace",
-    maxWidth: 150,
-    marginRight: 8,
-  },
-  actionsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 40,
-  },
-  actionItem: {
-    alignItems: "center",
-    flex: 1,
-  },
-  actionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
-  },
-  actionLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: THEME.text,
-  },
-  transactionsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: THEME.text,
-  },
-  seeAll: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: THEME.primary,
-  },
-  transactionsList: {
-    gap: 12,
-    paddingBottom: 40,
-  },
-  txCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: THEME.glassBg,
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  txIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 16,
-  },
-  txInfo: {
-    flex: 1,
-  },
-  txName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: THEME.text,
-    marginBottom: 2,
-  },
-  txDate: {
-    fontSize: 12,
-    color: THEME.textMuted,
-  },
-  txRight: {
-    alignItems: "flex-end",
-  },
-  txAmount: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: THEME.text,
-    marginBottom: 2,
-  },
-  txStatus: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
+  container: { flex: 1, backgroundColor: "transparent" },
+  scrollContent: { padding: 24, paddingTop: 40, paddingBottom: 100 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  greeting: { fontSize: 14, color: THEME.textMuted, fontWeight: "600" },
+  handleText: { fontSize: 22, color: THEME.text, fontWeight: "800", letterSpacing: 0.5 },
+  networkBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+  networkText: { fontSize: 12, fontWeight: "700", color: THEME.text },
+  searchContainer: { flexDirection: "row", alignItems: "center", backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, height: 52, marginBottom: 24, overflow: "hidden" },
+  searchIcon: { marginRight: 10 },
+  searchInput: { flex: 1, color: THEME.text, fontSize: 15 },
+  balanceCard: { borderRadius: 24, padding: 24, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden", alignItems: "center", marginBottom: 12 },
+  balanceHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  balanceLabel: { fontSize: 14, color: THEME.textMuted, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginRight: 8 },
+  balanceAmount: { fontSize: 56, fontWeight: "900", color: THEME.text, letterSpacing: -1, lineHeight: 60 },
+  hcSymbol: { fontSize: 28, color: THEME.textMuted, fontWeight: "bold" },
+  walletIdRow: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)", borderColor: THEME.glassBorder, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 16, marginTop: 16 },
+  walletIdText: { color: THEME.text, fontSize: 14, fontFamily: "monospace", fontWeight: "600", marginRight: 8 },
+  rateCard: { flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "rgba(16, 185, 129, 0.1)", borderWidth: 1, borderColor: "rgba(16, 185, 129, 0.3)", borderRadius: 12, paddingVertical: 6, paddingHorizontal: 16, marginBottom: 32 },
+  rateText: { color: THEME.success, fontWeight: "600", fontSize: 13 },
+  actionsContainer: { flexDirection: "row", justifyContent: "space-between", marginBottom: 32 },
+  actionItem: { alignItems: "center", flex: 1 },
+  actionButton: { width: 60, height: 60, borderRadius: 30, justifyContent: "center", alignItems: "center", marginBottom: 8, borderWidth: 1, borderColor: THEME.glassBorder, overflow: "hidden" },
+  actionLabel: { fontSize: 12, fontWeight: "600", color: THEME.textMuted },
+  transactionsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: "800", color: THEME.text },
+  gridContainer: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -8, paddingBottom: 8 },
+  gridItem: { width: "25%", paddingHorizontal: 8, alignItems: "center", marginBottom: 16 },
+  personAvatar: { width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center", marginBottom: 8, borderWidth: 2, borderColor: THEME.glassBorder },
+  personInitial: { fontSize: 20, fontWeight: "800", color: "#FFF" },
+  personName: { fontSize: 12, fontWeight: "600", color: THEME.textMuted },
+  seeAll: { fontSize: 14, fontWeight: "600", color: THEME.primary },
+  transactionsList: { gap: 12 },
+  txCard: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 16, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden" },
+  txIconBox: { width: 44, height: 44, borderRadius: 12, justifyContent: "center", alignItems: "center", marginRight: 16 },
+  txInfo: { flex: 1 },
+  txName: { fontSize: 16, fontWeight: "700", color: THEME.text, marginBottom: 2 },
+  txDate: { fontSize: 12, color: THEME.textMuted },
+  txRight: { alignItems: "flex-end" },
+  txAmount: { fontSize: 16, fontWeight: "800", color: THEME.text, marginBottom: 2 },
+  txStatus: { fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
 });

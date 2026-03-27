@@ -3,6 +3,7 @@ import React from 'react';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Platform, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const THEME = {
   primary: "#3B82F6",
@@ -19,18 +20,20 @@ export default function TabLayout() {
         tabBarInactiveTintColor: THEME.textMuted,
         tabBarStyle: {
           position: 'absolute',
-          backgroundColor: Platform.OS === 'android' ? '#0F172A' : 'transparent', // Android blur fallback
-          borderTopWidth: 1,
-          borderTopColor: THEME.glassBorder,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
           elevation: 0,
           height: Platform.OS === 'ios' ? 88 : 70,
           paddingBottom: Platform.OS === 'ios' ? 28 : 10,
           paddingTop: 10,
         },
         tabBarBackground: () => (
-          Platform.OS === 'ios' ? (
-            <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
-          ) : null
+          <LinearGradient
+            colors={["#000000", "#0D2818"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
         ),
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -47,6 +50,13 @@ export default function TabLayout() {
         options={{
           title: 'Radar',
           tabBarIcon: ({ color }) => <Feather size={24} name="radio" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="tracker"
+        options={{
+          title: 'Tracker',
+          tabBarIcon: ({ color }) => <Feather size={24} name="activity" color={color} />,
         }}
       />
       <Tabs.Screen
