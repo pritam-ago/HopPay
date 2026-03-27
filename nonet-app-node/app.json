@@ -60,11 +60,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "d1b11e8d-c7ea-48a9-aceb-cde2b8035876"
+        "projectId": "c0494531-df8f-4a1b-8155-10086ce40270"
       }
     },
     "ios": {
       "bundleIdentifier": "com.meshT.app"
-    }
+    },
+    "owner": "abhinavkajeev"
   }
 }

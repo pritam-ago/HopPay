@@ -52,4 +52,7 @@ export interface TransactionPayload {
     nonce: string;
     signature: string;
   };
+  // Optional UPI metadata from QR scan — used by relayer to trigger Decentro INR payout
+  upiId?: string;
+  merchantName?: string;
 }

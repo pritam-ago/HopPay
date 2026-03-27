@@ -204,6 +204,9 @@ interface TransactionLoaderProps {
     toAddress: string;
     chain: string;
     chainId: number;
+    // UPI metadata from QR scan — wired through to relayer for Decentro INR payout
+    upiId?: string;
+    merchantName?: string;
   };
 }
 
@@ -549,7 +552,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         walletData.privateKey
       );
 
-      // Create the transaction payload structure
+      // Create the transaction payload — include UPI metadata so relayer can trigger Decentro payout
       const transactionPayload: TransactionPayload = {
         type: "TRANSFER_WITH_AUTHORIZATION",
         contractAddress: CONTRACT_CONFIG.CONTRACT_ADDRESS,
@@ -563,56 +566,79 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           nonce: nonce,
           signature: realSignature,
         },
+        upiId: transactionData.upiId,
+        merchantName: transactionData.merchantName,
       };
 
       console.log("📝 Transaction payload created:", {
         type: transactionPayload.type,
-        contractAddress: transactionPayload.contractAddress,
         from: transactionPayload.parameters.from,
         to: transactionPayload.parameters.to,
         value: transactionPayload.parameters.value,
+        upiId: transactionPayload.upiId,
       });
 
       const payloadString = JSON.stringify(transactionPayload);
 
+      // Update this IP when testing on a real device (e.g. "http://192.168.1.5:3001/relay")
+      const RELAYER_URL = "http://localhost:3001/relay";
+
       // Check internet connectivity and choose submission path
       if (hasInternet) {
-        // DIRECT SUBMISSION PATH: Device has internet, submit directly
-        console.log("🚀 Device has internet - submitting directly to blockchain...");
+        console.log("🚀 Device has internet - submitting via relayer...");
         setIsDirectSubmission(true);
-        setShouldPauseFlow(false); // Don't pause for mesh steps
+        setShouldPauseFlow(false);
         setIsWaitingForConfirmation(false);
 
         try {
-          // Directly submit to blockchain
-          const response = await submitTransactionToBlockchain(payloadString);
-          setDirectSubmissionResponse(response);
-          console.log("✅ Direct submission response received:", response);
+          let response: string;
 
-          // Parse and handle response
+          if (transactionPayload.upiId) {
+            // UPI payment → route through relayer: blockchain + Decentro INR payout
+            console.log("💳 UPI payment — calling relayer for INR payout to:", transactionPayload.upiId);
+            const relayRes = await fetch(RELAYER_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: payloadString,
+            });
+            const relayJson = await relayRes.json();
+            response = JSON.stringify({
+              success: relayJson.success,
+              transactionHash: relayJson.transactionHash,
+              blockNumber: relayJson.blockNumber,
+              payout: relayJson.payout,
+              amountInr: relayJson.amountInr,
+              error: relayJson.error,
+              timestamp: Date.now(),
+            });
+            if (relayJson.success) {
+              console.log("✅ Relayer: TX", relayJson.transactionHash, "| INR Payout:", relayJson.payout);
+            }
+          } else {
+            // Crypto-only (no UPI) → submit directly to blockchain
+            response = await submitTransactionToBlockchain(payloadString);
+          }
+
+          setDirectSubmissionResponse(response);
+
           try {
             const responseObj = JSON.parse(response);
             if (responseObj.success) {
-              console.log("✅ Transaction successful!");
-              console.log("Transaction Hash:", responseObj.transactionHash);
-              // The flow will handle completion in the UI update logic
+              console.log("✅ Transaction successful! Hash:", responseObj.transactionHash);
             } else {
               console.error("❌ Transaction failed:", responseObj.error);
-              // Error will be handled in the response handler
             }
           } catch (parseErr) {
-            console.warn("⚠️ Could not parse direct submission response:", parseErr);
+            console.warn("⚠️ Could not parse response:", parseErr);
           }
         } catch (error) {
-          console.error("❌ Error in direct submission:", error);
-          // Create error response
-          const errorResponse = JSON.stringify({
+          console.error("❌ Error in submission:", error);
+          setDirectSubmissionResponse(JSON.stringify({
             success: false,
             error: error instanceof Error ? error.message : String(error),
             timestamp: Date.now(),
             stage: "direct_submission",
-          });
-          setDirectSubmissionResponse(errorResponse);
+          }));
         }
       } else {
         // MESH NETWORK PATH: No internet, broadcast via BLE mesh

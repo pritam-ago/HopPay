@@ -28,6 +28,8 @@ import {
   Chain,
 } from '@/constants/assets';
 import { TransactionLoader } from '@/components/TransactionLoader';
+import { CONTRACT_CONFIG } from '@/constants/contracts';
+import { ethers } from 'ethers';
 
 export default function TransactionPage(): React.JSX.Element {
   const { toAddress, merchantName, upiId, amount: qrAmount, note } =
@@ -167,9 +169,17 @@ export default function TransactionPage(): React.JSX.Element {
         transactionData={{
           amount,
           currency: selectedChain.symbol,
-          toAddress: toAddress || '',
+          // For UPI payments: send tokens to the relayer wallet on-chain;
+          // the relayer detects the upiId and pays out INR to the merchant via Decentro
+          toAddress: isUpiPayment
+            ? (CONTRACT_CONFIG.RELAYER_PRIVATE_KEY
+                ? new ethers.Wallet(CONTRACT_CONFIG.RELAYER_PRIVATE_KEY).address
+                : toAddress || '')
+            : (toAddress || ''),
           chain: selectedChain.name,
           chainId: selectedChain.chainId,
+          upiId: upiId || undefined,
+          merchantName: merchantName || undefined,
         }}
       />
     );

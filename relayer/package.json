@@ -1,10 +1,11 @@
 {
   "name": "mesht-relayer",
+  "type": "module",
   "version": "1.0.0",
   "description": "MeshT Ghost Voucher Relayer — submits signed EIP-3009 vouchers on-chain and triggers INR payout via Cashfree",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node --esm index.ts",
+    "dev": "node index.cjs",
     "build": "tsc",
     "start": "node dist/index.js"
   },

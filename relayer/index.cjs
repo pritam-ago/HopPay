@@ -5,7 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
-const { triggerInrPayout, meshtToInr } = require("./payout");
+const { triggerInrPayout, meshtToInr } = require("./payout.cjs");
 
 dotenv.config();
 
