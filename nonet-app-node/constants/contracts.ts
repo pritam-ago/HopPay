@@ -55,4 +55,5 @@ export interface TransactionPayload {
   // Optional UPI metadata from QR scan — used by relayer to trigger Decentro INR payout
   upiId?: string;
   merchantName?: string;
+  merchantPhone?: string; // for demo bank SMS via Fast2SMS
 }

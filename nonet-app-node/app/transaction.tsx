@@ -32,11 +32,12 @@ import { CONTRACT_CONFIG } from '@/constants/contracts';
 import { ethers } from 'ethers';
 
 export default function TransactionPage(): React.JSX.Element {
-  const { toAddress, merchantName, upiId, amount: qrAmount, note } =
+  const { toAddress, merchantName, upiId, merchantPhone, amount: qrAmount, note } =
     useLocalSearchParams<{
       toAddress: string;
       merchantName?: string;
       upiId?: string;
+      merchantPhone?: string;
       amount?: string;
       note?: string;
     }>();
@@ -180,6 +181,7 @@ export default function TransactionPage(): React.JSX.Element {
           chainId: selectedChain.chainId,
           upiId: upiId || undefined,
           merchantName: merchantName || undefined,
+          merchantPhone: merchantPhone || undefined,
         }}
       />
     );

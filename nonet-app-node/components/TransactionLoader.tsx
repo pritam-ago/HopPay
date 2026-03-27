@@ -207,6 +207,7 @@ interface TransactionLoaderProps {
     // UPI metadata from QR scan — wired through to relayer for Decentro INR payout
     upiId?: string;
     merchantName?: string;
+    merchantPhone?: string; // for demo bank SMS
   };
 }
 
@@ -568,6 +569,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         },
         upiId: transactionData.upiId,
         merchantName: transactionData.merchantName,
+        merchantPhone: transactionData.merchantPhone,
       };
 
       console.log("📝 Transaction payload created:", {

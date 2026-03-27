@@ -6,6 +6,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
 const { triggerInrPayout, meshtToInr } = require("./payout.cjs");
+const { sendCreditSms, extractPhoneFromUpi } = require("./sms.cjs");
 
 dotenv.config();
 
@@ -161,7 +162,6 @@ app.post("/relay", async (req, res) => {
 
     console.log(`[RELAY] ✅ Signature verified`);
 
-    // Deduplicate by nonce
     const itemId = parameters.nonce;
     if (pendingQueue.has(itemId)) {
       const existing = pendingQueue.get(itemId);
@@ -193,6 +193,32 @@ app.post("/relay", async (req, res) => {
       console.log(`[PAYOUT] ₹${amountInr} → ${upiId}`);
       payoutResult = await triggerInrPayout(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
       pendingItem.payoutResult = payoutResult;
+      
+      if (payoutResult?.transactionStatus) {
+        console.log(`[PAYOUT] Decentro Status: ${payoutResult.transactionStatus}`);
+        if (payoutResult.transactionStatus === "pending") {
+          console.warn(`[PAYOUT] ⚠️  Transaction is PENDING`);
+        } else if (payoutResult.transactionStatus === "failure") {
+          console.error(`[PAYOUT] ❌ Transaction FAILED`);
+        }
+      }
+
+      // 🎯 Demo effect: send a real bank-style credit SMS to the merchant's phone
+      // Priority: (1) phone extracted from UPI ID, (2) phone from app payload, (3) .env fallback
+      const phoneFromUpi = extractPhoneFromUpi(upiId);
+      const merchantPhone = phoneFromUpi || payload.merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+      
+      if (phoneFromUpi) {
+        console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      }
+
+      if (merchantPhone) {
+        const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+        sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
+          .catch(e => console.error("[SMS] Failed:", e.message));
+      }
+    } else {
+      console.log(`[PAYOUT] No UPI ID provided — skipping INR payout`);
     }
 
     pendingQueue.set(itemId, pendingItem);
@@ -206,6 +232,7 @@ app.post("/relay", async (req, res) => {
       explorerUrl: `https://evm-testnet.flowscan.io/tx/${txHash}`,
       amountInr,
       payout: payoutResult,
+      payoutStatus: payoutResult?.transactionStatus || "unknown",
       elapsed,
     });
   } catch (err) {
@@ -214,16 +241,12 @@ app.post("/relay", async (req, res) => {
   }
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-
 app.listen(PORT, () => {
   console.log(`\n🚀 MeshT Relayer running on http://localhost:${PORT}`);
   console.log(`   Network:  ${RPC_URL}`);
   console.log(`   Contract: ${CONTRACT_ADDRESS}`);
   if (RELAYER_PRIVATE_KEY) {
     console.log(`   Relayer:  ${new ethers.Wallet(RELAYER_PRIVATE_KEY).address}`);
-  } else {
-    console.warn(`   ⚠️  RELAYER_PRIVATE_KEY not set`);
   }
   console.log(`\n   POST http://localhost:${PORT}/relay`);
   console.log(`   GET  http://localhost:${PORT}/health\n`);
