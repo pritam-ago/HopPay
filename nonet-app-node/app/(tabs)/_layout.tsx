@@ -1,66 +1,66 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { MaterialIcons } from '@expo/vector-icons';
-import { SafeAreaView, Platform, StatusBar } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { Platform, StyleSheet } from 'react-native';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { Colors } from '@/constants/theme';
-import { NeoBrutalismColors } from '@/constants/neoBrutalism';
+const THEME = {
+  primary: "#3B82F6",
+  textMuted: "#94A3B8",
+  glassBg: "rgba(15, 23, 42, 0.7)", 
+  glassBorder: "rgba(255, 255, 255, 0.05)",
+};
 
 export default function TabLayout() {
-  // Calculate safe area padding for Android
-  const statusBarHeight = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
-  
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: NeoBrutalismColors.primary,
-        tabBarInactiveTintColor: NeoBrutalismColors.textSecondary,
-        tabBarStyle: { 
-          backgroundColor: NeoBrutalismColors.background,
-          borderTopWidth: 4,
-          borderTopColor: NeoBrutalismColors.border,
-          paddingTop: Platform.OS === 'android' ? statusBarHeight + 8 : 8,
-          height: Platform.OS === 'android' ? 70 + statusBarHeight : 70,
-          paddingBottom: 8,
+        tabBarActiveTintColor: THEME.primary,
+        tabBarInactiveTintColor: THEME.textMuted,
+        tabBarStyle: {
+          position: 'absolute',
+          backgroundColor: Platform.OS === 'android' ? '#0F172A' : 'transparent', // Android blur fallback
+          borderTopWidth: 1,
+          borderTopColor: THEME.glassBorder,
+          elevation: 0,
+          height: Platform.OS === 'ios' ? 88 : 70,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+          paddingTop: 10,
         },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '700',
-          textTransform: 'uppercase',
-          letterSpacing: 1,
-          marginTop: 4,
-        },
+        tabBarBackground: () => (
+          Platform.OS === 'ios' ? (
+            <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
+          ) : null
+        ),
         headerShown: false,
-        tabBarButton: HapticTab,
-        tabBarPosition: 'top',
+        tabBarHideOnKeyboard: true,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'SCAN',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="qr-code-scanner" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="show"
-        options={{
-          title: 'WALLET',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="account-balance-wallet" color={color} />,
+          title: 'Home',
+          tabBarIcon: ({ color }) => <Feather size={24} name="home" color={color} />,
         }}
       />
       <Tabs.Screen
         name="mesh"
         options={{
-          title: 'MESH',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="device-hub" color={color} />,
+          title: 'Radar',
+          tabBarIcon: ({ color }) => <Feather size={24} name="radio" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="receive"
+        name="rewards"
         options={{
-          title: 'RECEIVE',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="payments" color={color} />,
+          title: 'Rewards',
+          tabBarIcon: ({ color }) => <Feather size={24} name="award" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="show"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color }) => <Feather size={24} name="settings" color={color} />,
         }}
       />
     </Tabs>

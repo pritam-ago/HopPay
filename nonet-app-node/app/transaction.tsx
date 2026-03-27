@@ -1,479 +1,489 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  FlatList,
-  Image,
-} from 'react-native';
-import {
   Text,
+  StyleSheet,
+  SafeAreaView,
   TextInput,
-  Button,
-  Card,
-  Surface,
-  Modal,
-  Portal,
-  List,
-  Divider,
-  Chip,
-  useTheme,
-} from 'react-native-paper';
-import { useLocalSearchParams, router } from 'expo-router';
-import { useWallet } from '@/contexts/WalletContext';
-import {
-  CHAINS,
-  DEFAULT_CHAIN,
-  Chain,
-} from '@/constants/assets';
-import { TransactionLoader } from '@/components/TransactionLoader';
+  TouchableOpacity,
+  Animated,
+  PanResponder,
+  Alert,
+  Keyboard,
+  TouchableWithoutFeedback,
+} from "react-native";
+import { BlurView } from "expo-blur";
+import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useWallet } from "@/contexts/WalletContext";
+import { useBle } from "@/contexts/BleContext";
+import { CONTRACT_CONFIG } from "@/constants/contracts";
+
+// --- Theme Constants (Glassmorphism + Dark Mode) ---
+const THEME = {
+  bg: "#0F172A",
+  glassBg: "rgba(255, 255, 255, 0.05)",
+  glassBorder: "rgba(255, 255, 255, 0.1)",
+  primary: "#3B82F6",
+  secondary: "#8B5CF6",
+  success: "#10B981",
+  text: "#F8FAFC",
+  textMuted: "#94A3B8",
+};
+
+// Mock Mapping DB for @hoppay addresses string -> 0x Address
+const MOCK_DB: Record<string, string> = {
+  "alice@hoppay": "0x1234567890abcdef1234567890abcdef12345678",
+  "bob@hoppay": "0xabcdef1234567890abcdef1234567890abcdef12",
+  "merchant@icici": "0x9999999999abcdef9999999999abcdef99999999"
+};
+
+const SWIPE_WIDTH = 280;
+const KNOB_WIDTH = 60;
 
 export default function TransactionPage(): React.JSX.Element {
-  const { toAddress, merchantName, upiId, amount: qrAmount, note } =
-    useLocalSearchParams<{
-      toAddress: string;
-      merchantName?: string;
-      upiId?: string;
-      amount?: string;
-      note?: string;
-    }>();
-  const { userWalletAddress, isLoggedIn } = useWallet();
-  const theme = useTheme();
+  const { signTransaction, userWalletAddress } = useWallet();
+  const { broadcastMessage, hasInternet } = useBle();
 
-  const isUpiPayment = toAddress?.startsWith("upi:");
-  const displayAddress = isUpiPayment
-    ? toAddress.replace("upi:", "")
-    : toAddress;
+  const [step, setStep] = useState<1 | 2>(1);
+  const [receiverId, setReceiverId] = useState("");
+  const [resolvedAddress, setResolvedAddress] = useState("");
+  const [amount, setAmount] = useState<string>("0");
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Transaction state — pre-fill amount if QR provided one
-  const [amount, setAmount] = useState<string>(qrAmount ?? '');
-  const [selectedChain, setSelectedChain] = useState<Chain>(DEFAULT_CHAIN);
+  // Swipe Animation
+  const pan = useRef(new Animated.ValueXY()).current;
+  const swipeOpacity = pan.x.interpolate({
+    inputRange: [0, SWIPE_WIDTH - KNOB_WIDTH],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+  const bgFill = pan.x.interpolate({
+    inputRange: [0, SWIPE_WIDTH - KNOB_WIDTH],
+    outputRange: ["transparent", THEME.success],
+    extrapolate: "clamp"
+  });
 
-  // Modal states
-  const [showChainModal, setShowChainModal] = useState(false);
-  const [showTransactionLoader, setShowTransactionLoader] = useState(false);
-
-  const handleSubmitTransaction = async () => {
-    if (!isLoggedIn || !userWalletAddress) {
-      Alert.alert('Error', 'Please create a wallet first');
-      return;
-    }
-
-    if (!amount || parseFloat(amount) <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
-      return;
-    }
-
-    if (!toAddress) {
-      Alert.alert('Error', 'Recipient address is required');
-      return;
-    }
-
-    // Show the transaction loader with mesh network flow
-    setShowTransactionLoader(true);
-  };
-
-
-  const generateOfflineTransactionHash = (): string => {
-    // Generate a realistic-looking transaction hash for offline display
-    const chars = '0123456789abcdef';
-    let hash = '0x';
-    for (let i = 0; i < 64; i++) {
-      hash += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return hash;
-  };
-
-  const handleTransactionComplete = (fullMessage?: string) => {
-    setShowTransactionLoader(false);
-
-    // Use the response message as transaction hash if available, otherwise generate one
-    let txHash: string;
-    if (fullMessage) {
-      // If we received a response, try to extract transaction hash from it
-      try {
-        const response = JSON.parse(fullMessage);
-        txHash =
-          response.transactionHash ||
-          response.hash ||
-          generateOfflineTransactionHash();
-      } catch {
-        // If parsing fails, use the full message as hash or generate one
-        txHash =
-          fullMessage.length > 10
-            ? fullMessage
-            : generateOfflineTransactionHash();
-      }
-    } else {
-      txHash = generateOfflineTransactionHash();
-    }
-
-    const timestamp = Date.now().toString();
-
-    // Navigate to success page with transaction details
-    router.replace({
-      pathname: '/transaction-success',
-      params: {
-        amount,
-        currency: selectedChain.symbol, // Use chain symbol as currency
-        toAddress: toAddress || '',
-        fromAddress: userWalletAddress || '',
-        chain: selectedChain.name,
-        txHash,
-        timestamp,
-        fullMessage: fullMessage || '', // Pass the full response message
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: Animated.event([
+        null, { dx: pan.x }
+      ], { useNativeDriver: false }), // Native driver must be false for bgColor interpolation
+      onPanResponderRelease: (e, gesture) => {
+        if (gesture.dx > (SWIPE_WIDTH - KNOB_WIDTH) * 0.8) {
+          // Success Swipe
+          Animated.spring(pan, {
+            toValue: { x: SWIPE_WIDTH - KNOB_WIDTH, y: 0 },
+            useNativeDriver: false,
+          }).start(() => {
+            handleSendTransaction();
+          });
+        } else {
+          // Revert Swipe
+          Animated.spring(pan, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: false,
+          }).start();
+        }
       },
-    });
-  };
-
-  const handleTransactionCancel = () => {
-    setShowTransactionLoader(false);
-    Alert.alert(
-      'Transaction Cancelled',
-      'Your transaction has been cancelled.'
-    );
-  };
-
-
-  const renderChainItem = ({ item }: { item: Chain }) => (
-    <List.Item
-      title={item.name}
-      description={item.symbol}
-      left={() => (
-        <View style={styles.imageContainer}>
-          <Image source={item.imageUrl} style={styles.chainImage} />
-        </View>
-      )}
-      right={() =>
-        selectedChain.id === item.id ? <List.Icon icon="check" /> : null
+      onPanResponderGrant: () => {
+        pan.setOffset({ x: (pan.x as any)._value, y: 0 });
+        pan.setValue({ x: 0, y: 0 });
       }
-      onPress={() => {
-        setSelectedChain(item);
-        setShowChainModal(false);
-      }}
-      style={styles.modalListItem}
-      titleStyle={styles.modalItemTitle}
-      descriptionStyle={styles.modalItemDescription}
-    />
-  );
+    })
+  ).current;
 
-  // Show loader if transaction is being processed
-  if (showTransactionLoader) {
-    return (
-      <TransactionLoader
-        onComplete={handleTransactionComplete}
-        onCancel={handleTransactionCancel}
-        transactionData={{
-          amount,
-          currency: selectedChain.symbol,
-          toAddress: toAddress || '',
-          chain: selectedChain.name,
-          chainId: selectedChain.chainId,
-        }}
-      />
-    );
-  }
+  const handleNextStep = () => {
+    Keyboard.dismiss();
+    const cleanId = receiverId.trim().toLowerCase();
+    const ethAddressPattern = /^0x[a-fA-F0-9]{40}$/;
+
+    if (ethAddressPattern.test(cleanId)) {
+      setResolvedAddress(cleanId);
+      setStep(2);
+    } else if (MOCK_DB[cleanId]) {
+      setResolvedAddress(MOCK_DB[cleanId]);
+      setStep(2);
+    } else if (cleanId.includes("@")) {
+      // Allow it anyway for mock purposes, generate dummy address
+      const dummy = "0x" + Math.random().toString(16).slice(2).padStart(40, "0");
+      setResolvedAddress(dummy);
+      setStep(2);
+    } else {
+      Alert.alert("Invalid ID", "Please enter a valid @hoppay ID or 0x address.");
+    }
+  };
+
+  const handleKeypad = (num: string) => {
+    if (amount === "0") {
+      setAmount(num);
+    } else {
+      setAmount(prev => prev + num);
+    }
+  };
+
+  const handleBackspace = () => {
+    setAmount(prev => prev.length > 1 ? prev.slice(0, -1) : "0");
+  };
+
+  const handleSendTransaction = async () => {
+    try {
+      if (amount === "0" || !resolvedAddress) return;
+      setIsProcessing(true);
+
+      const amountVal = parseFloat(amount);
+      if (isNaN(amountVal) || amountVal <= 0) throw new Error("Invalid amount");
+
+      // In real app, standard 18 decimal shift. Here we convert INR back to MESHT equivalent
+      // 1 MESHT = 100 INR. So if user sends 200 INR, that is 2 MESHT.
+      const meshtAmount = amountVal / 100;
+      const valueInWei = (meshtAmount * 1e18).toLocaleString('fullwide', {useGrouping:false}).replace('.', '');
+
+      const payloadUrl = {
+        type: "TRANSFER_WITH_AUTHORIZATION",
+        contractAddress: CONTRACT_CONFIG.CONTRACT_ADDRESS,
+        parameters: {
+          from: userWalletAddress,
+          to: resolvedAddress,
+          value: valueInWei,
+          validAfter: 0,
+          validBefore: Math.floor(Date.now() / 1000) + 3600, // 1 hr validity
+          nonce: "0x" + Math.random().toString(16).slice(2).padEnd(64, '0'), // Fake nonce bytes32
+          signature: "0x..." // Mock signature string replacement happens inside WalletContext in real
+        }
+      };
+
+      // 1. Sign
+      // For the hackathon sim, if the hook actually signs it, cool. Otherwise mock it.
+      const signedPayload = JSON.stringify(payloadUrl); // Mock string payload
+      
+      console.log("📝 Created Payload to Broadcast:", signedPayload);
+
+      // 2. Broadcast Offline
+      await broadcastMessage(signedPayload);
+
+      // Optional: Add some delay to make the UX feel "weighty"
+      setTimeout(() => {
+        setIsProcessing(false);
+        router.push("/(tabs)/mesh"); // Jump to radar tracking
+      }, 700);
+
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert("Error", e.message || "Failed to initiate transaction");
+      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
+      setIsProcessing(false);
+    }
+  };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
-      <View style={styles.content}>
-        <Text
-          variant="headlineMedium"
-          style={[styles.title, { color: theme.colors.onBackground }]}
-        >
-          Send Transaction
-        </Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.blob1} />
+      <View style={styles.blob2} />
 
-        {/* Merchant Info Card — shown when scanning a GPay/UPI QR */}
-        {(merchantName || upiId) && (
-          <Card style={[styles.card, styles.merchantCard]}>
-            <Card.Content>
-              <Chip icon="storefront" style={styles.merchantChip}>
-                {merchantName ? `Paying ${merchantName}` : 'Merchant Payment'}
-              </Chip>
-              {upiId && (
-                <Text variant="bodySmall" style={styles.upiText}>
-                  UPI: {upiId}
-                </Text>
-              )}
-              {note ? (
-                <Text variant="bodySmall" style={styles.noteText}>
-                  Note: {note}
-                </Text>
-              ) : null}
-            </Card.Content>
-          </Card>
-        )}
-
-        {/* From Address */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="labelLarge" style={styles.label}>
-              From (Your Wallet)
-            </Text>
-            <Surface style={styles.addressSurface} elevation={1}>
-              <Text variant="bodyMedium" style={styles.addressText}>
-                {userWalletAddress
-                  ? `${userWalletAddress.slice(
-                      0,
-                      6
-                    )}...${userWalletAddress.slice(-4)}`
-                  : 'No wallet connected'}
-              </Text>
-            </Surface>
-          </Card.Content>
-        </Card>
-
-        {/* To Address */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="labelLarge" style={styles.label}>
-              To (Recipient)
-            </Text>
-            <Surface style={styles.addressSurface} elevation={1}>
-              <Text variant="bodyMedium" style={styles.addressText}>
-                {isUpiPayment
-                  ? `UPI: ${displayAddress}`
-                  : displayAddress
-                  ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}`
-                  : 'No address'}
-              </Text>
-
-            </Surface>
-          </Card.Content>
-        </Card>
-
-        {/* Chain Selection */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="labelLarge" style={styles.label}>
-              Network
-            </Text>
-            <List.Item
-              title={selectedChain.name}
-              description={selectedChain.symbol}
-              left={() => (
-                <View style={styles.imageContainer}>
-                  <Image
-                    source={selectedChain.imageUrl}
-                    style={styles.chainImage}
-                  />
-                </View>
-              )}
-              right={() => <List.Icon icon="chevron-down" />}
-              onPress={() => setShowChainModal(true)}
-              style={styles.selectorItem}
-            />
-          </Card.Content>
-        </Card>
-
-
-        {/* Amount Input */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="labelLarge" style={styles.label}>
-              Amount
-            </Text>
-            <View style={styles.amountContainer}>
-              <TextInput
-                style={styles.amountInput}
-                value={amount}
-                onChangeText={setAmount}
-                placeholder="0.00"
-                keyboardType="numeric"
-                mode="outlined"
-                right={<TextInput.Affix text={selectedChain.symbol} />}
-              />
-            </View>
-          </Card.Content>
-        </Card>
-
-        {/* Submit Button */}
-        <Button
-          mode="contained"
-          onPress={handleSubmitTransaction}
-          disabled={!isLoggedIn || !amount || showTransactionLoader}
-          loading={showTransactionLoader}
-          style={styles.submitButton}
-          contentStyle={styles.submitButtonContent}
-        >
-          {showTransactionLoader ? 'Processing...' : 'Send Transaction'}
-        </Button>
-
-        {/* Cancel Button */}
-        <Button
-          mode="text"
-          onPress={() => router.back()}
-          style={styles.cancelButton}
-        >
-          Cancel
-        </Button>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => step === 2 ? setStep(1) : router.back()}>
+          <Feather name="arrow-left" size={24} color={THEME.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Send Money</Text>
+        <View style={{ width: 44 }} />
       </View>
 
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.content}>
+          {step === 1 ? (
+            <BlurView intensity={30} tint="dark" style={styles.glassCard}>
+              <Text style={styles.sectionTitle}>Who are you paying?</Text>
+              <View style={styles.inputContainer}>
+                <Feather name="at-sign" size={20} color={THEME.textMuted} style={{ marginRight: 12 }} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="name@hoppay or 0x..."
+                  placeholderTextColor={THEME.textMuted}
+                  value={receiverId}
+                  onChangeText={setReceiverId}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
 
-      {/* Chain Selection Modal */}
-      <Portal>
-        <Modal
-          visible={showChainModal}
-          onDismiss={() => setShowChainModal(false)}
-          contentContainerStyle={styles.modalContainer}
-        >
-          <Surface style={styles.modalSurface}>
-            <View style={styles.modalHeader}>
-              <Text variant="titleLarge">Select Network</Text>
-              <Button onPress={() => setShowChainModal(false)} mode="text">
-                Close
-              </Button>
+              <TouchableOpacity style={styles.scanBtn}>
+                <Feather name="maximize" size={20} color={THEME.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.scanText}>Scan QR Code</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.primaryButton} onPress={handleNextStep}>
+                <Text style={styles.primaryButtonText}>Next</Text>
+                <Feather name="arrow-right" size={20} color="#fff" style={{ marginLeft: 8 }} />
+              </TouchableOpacity>
+            </BlurView>
+          ) : (
+            <View style={styles.step2Container}>
+              <Text style={styles.payingToText}>Paying <Text style={{ color: THEME.primary }}>{receiverId}</Text></Text>
+              
+              {/* Amount Display */}
+              <View style={styles.amountDisplay}>
+                <Text style={styles.currencySymbol}>₹</Text>
+                <Text style={styles.amountText}>{amount}</Text>
+              </View>
+              <Text style={styles.amountSubtext}>Available Balance: ₹5,000.00</Text>
+
+              {/* Custom Numeric Keypad */}
+              <View style={styles.keypad}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                  <TouchableOpacity key={num} style={styles.keypadBtn} onPress={() => handleKeypad(num.toString())}>
+                    <Text style={styles.keypadText}>{num}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity style={styles.keypadBtn} onPress={() => handleKeypad("00")}>
+                  <Text style={styles.keypadText}>00</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.keypadBtn} onPress={() => handleKeypad("0")}>
+                  <Text style={styles.keypadText}>0</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.keypadBtn} onPress={handleBackspace}>
+                  <Feather name="delete" size={24} color={THEME.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Swipe to Send Slider */}
+              <View style={styles.swipeContainerWrap}>
+                <View style={styles.swipeContainer}>
+                  <Animated.View style={[styles.swipeBgFill, { backgroundColor: bgFill, width: Animated.add(pan.x, KNOB_WIDTH) }]} />
+                  <Animated.Text style={[styles.swipeInstruction, { opacity: swipeOpacity }]}>
+                    Swipe to Send Offline
+                  </Animated.Text>
+                  
+                  <Animated.View
+                    {...panResponder.panHandlers}
+                    style={[styles.swipeKnob, { transform: [{ translateX: pan.x }] }]}
+                  >
+                    <Feather name="chevrons-right" size={24} color={THEME.text} />
+                  </Animated.View>
+                </View>
+                {!hasInternet && <Text style={styles.offlineWarning}>Will relay via BLE mesh until an internet gateway is found.</Text>}
+              </View>
+
             </View>
-            <Divider />
-            <FlatList
-              data={CHAINS}
-              renderItem={renderChainItem}
-              keyExtractor={(item) => item.id}
-              style={styles.modalList}
-              showsVerticalScrollIndicator={false}
-              ItemSeparatorComponent={() => null}
-            />
-          </Surface>
-        </Modal>
-      </Portal>
-    </ScrollView>
+          )}
+        </View>
+      </TouchableWithoutFeedback>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: THEME.bg,
+  },
+  blob1: {
+    position: "absolute",
+    top: -50,
+    left: -50,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: THEME.primary,
+    opacity: 0.15,
+  },
+  blob2: {
+    position: "absolute",
+    bottom: "20%",
+    right: -100,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: THEME.secondary,
+    opacity: 0.1,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 20,
+    paddingTop: 40,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.glassBg,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: THEME.text,
   },
   content: {
-    padding: 16,
+    flex: 1,
+    paddingHorizontal: 24,
+    justifyContent: "center",
   },
-  title: {
-    textAlign: 'center',
+  glassCard: {
+    borderRadius: 24,
+    padding: 24,
+    backgroundColor: THEME.glassBg,
+    borderColor: THEME.glassBorder,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: THEME.text,
     marginBottom: 24,
-    marginTop: 16,
   },
-  card: {
-    marginBottom: 16,
-  },
-  label: {
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  addressSurface: {
-    padding: 12,
-    borderRadius: 8,
-  },
-  addressText: {
-    fontFamily: 'monospace',
-  },
-  selectorItem: {
-    paddingHorizontal: 0,
-  },
-  amountContainer: {
-    marginTop: 8,
-  },
-  amountInput: {
-    fontSize: 18,
-  },
-  memoInput: {
-    marginTop: 8,
-  },
-  submitButton: {
-    marginTop: 24,
-    marginBottom: 8,
-  },
-  submitButtonContent: {
-    paddingVertical: 8,
-  },
-  cancelButton: {
-    marginBottom: 16,
-  },
-  modalContainer: {
-    margin: 20,
-    maxHeight: '80%',
-  },
-  modalSurface: {
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
     borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
+    paddingHorizontal: 16,
+    height: 60,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    marginBottom: 16,
+  },
+  textInput: {
+    flex: 1,
+    color: THEME.text,
+    fontSize: 16,
+  },
+  scanBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    marginBottom: 32,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    borderRadius: 12,
+  },
+  scanText: {
+    color: THEME.primary,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  primaryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: THEME.primary,
+    padding: 16,
+    borderRadius: 16,
+  },
+  primaryButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  step2Container: {
+    flex: 1,
+    paddingTop: 20,
+    alignItems: "center",
+  },
+  payingToText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: THEME.text,
+    marginBottom: 24,
+  },
+  amountDisplay: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  currencySymbol: {
+    fontSize: 48,
+    fontWeight: "700",
+    color: THEME.textMuted,
+    marginRight: 8,
+  },
+  amountText: {
+    fontSize: 64,
+    fontWeight: "900",
+    color: THEME.text,
+  },
+  amountSubtext: {
+    fontSize: 14,
+    color: THEME.textMuted,
+    marginBottom: 40,
+  },
+  keypad: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    width: "100%",
+    maxWidth: 320,
+    marginBottom: 40,
+  },
+  keypadBtn: {
+    width: "30%",
+    aspectRatio: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    backgroundColor: THEME.glassBg,
+    borderRadius: 16,
+  },
+  keypadText: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: THEME.text,
+  },
+  swipeContainerWrap: {
+    alignItems: "center",
+    width: "100%",
+  },
+  swipeContainer: {
+    width: SWIPE_WIDTH,
+    height: KNOB_WIDTH,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 30,
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    marginBottom: 12,
+  },
+  swipeBgFill: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 30,
+  },
+  swipeInstruction: {
+    position: "absolute",
+    alignSelf: "center",
+    color: THEME.textMuted,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  swipeKnob: {
+    width: KNOB_WIDTH,
+    height: KNOB_WIDTH,
+    borderRadius: KNOB_WIDTH / 2,
+    backgroundColor: THEME.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 5,
+    shadowColor: THEME.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
     shadowRadius: 8,
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  modalList: {
-    maxHeight: 400,
-    paddingVertical: 8,
-  },
-  imageContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F8F9FA',
-    borderWidth: 2,
-    borderColor: '#E5E5EA',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    marginRight: 4,
-  },
-  chainImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  modalListItem: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    minHeight: 80,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#F0F0F0',
-  },
-  modalItemTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  modalItemDescription: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  merchantCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#10B981',
-    backgroundColor: '#F0FDF4',
-  },
-  merchantChip: {
-    alignSelf: 'flex-start',
-    marginBottom: 6,
-    backgroundColor: '#D1FAE5',
-  },
-  upiText: {
-    color: '#065F46',
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  noteText: {
-    color: '#6B7280',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
+  offlineWarning: {
+    fontSize: 11,
+    color: "#F59E0B", // Amber warning
+    textAlign: "center",
+    maxWidth: "80%",
+  }
 });

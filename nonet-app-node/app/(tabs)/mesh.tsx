@@ -1,427 +1,368 @@
-import React, { useState } from 'react';
-import { Alert, View, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from "react";
 import {
-  Provider as PaperProvider,
-  DefaultTheme,
+  View,
   Text,
-  TextInput,
-  Button,
-  Card,
-  Title,
-  Paragraph,
-  Badge,
-  Surface,
-  ProgressBar,
-  Icon,
-  IconButton,
-} from 'react-native-paper';
-import { useBle } from '@/contexts/BleContext';
-import { MessageState } from '@/utils/bleUtils';
+  StyleSheet,
+  SafeAreaView,
+  Animated,
+  TouchableOpacity,
+  ScrollView,
+} from "react-native";
+import { BlurView } from "expo-blur";
+import { Feather } from "@expo/vector-icons";
+import { useBle } from "@/contexts/BleContext";
 
-// --- Theme ---
-const theme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: '#2196F3',
-    accent: '#FF5722',
-  },
+// --- Theme Constants (Glassmorphism + Dark Mode) ---
+const THEME = {
+  bg: "#0F172A",
+  glassBg: "rgba(255, 255, 255, 0.05)",
+  glassBorder: "rgba(255, 255, 255, 0.1)",
+  primary: "#3B82F6",
+  secondary: "#8B5CF6",
+  success: "#10B981",
+  text: "#F8FAFC",
+  textMuted: "#94A3B8",
 };
 
-const MeshScreen = () => {
-  const [message, setMessage] = useState('');
-
-  // Use the global BLE context
-  const {
-    isBroadcasting,
-    hasInternet,
-    masterState,
-    broadcastMessage,
-    startBroadcasting,
-    stopBroadcasting,
-    clearAllAndStop,
-    getCurrentBroadcastInfo,
-    getProgressFor,
-  } = useBle();
-
-  const handleStartUserBroadcast = async () => {
-    try {
-      await broadcastMessage(message);
-      setMessage('');
-    } catch (err) {
-      Alert.alert(
-        'Error',
-        (err as Error).message || 'Failed to encode message'
-      );
-    }
-  };
-
-  // Clear everything & stop (single button)
-  const handleClearEverythingAndStop = () => {
-    if (masterState.size === 0 && !isBroadcasting) {
-      return;
-    }
-
-    Alert.alert(
-      'Clear Everything & Stop',
-      'This will clear received messages, clear the broadcast queue, and stop broadcasting. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear all & stop',
-          style: 'destructive',
-          onPress: clearAllAndStop,
-        },
-      ]
-    );
-  };
-
-  const renderReceivedMessageCard = (state: MessageState) => {
-    const progress = getProgressFor(state);
-    
-    // Try to parse response to show transaction status
-    let transactionStatus: {
-      success?: boolean;
-      error?: string;
-      transactionHash?: string;
-      stage?: string;
-      blockNumber?: number;
-    } | null = null;
-    
-    if (state.isAck && state.isComplete && state.fullMessage) {
-      try {
-        transactionStatus = JSON.parse(state.fullMessage);
-      } catch {
-        // Not JSON, ignore
-      }
-    }
-    
-    return (
-      <Card 
-        key={`msg-${state.id}`} 
-        style={[
-          styles.messageCard,
-          transactionStatus?.success === false && styles.errorCard,
-          transactionStatus?.success === true && styles.successCard,
-        ]}
-      >
-        <Card.Content>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Title style={[styles.messageTitle, { textAlign: 'left' }]}>
-              {state.isAck ? 'Response' : 'Request'}
-            </Title>
-            {transactionStatus && (
-              <Badge 
-                style={[
-                  transactionStatus.success 
-                    ? styles.successBadge 
-                    : styles.errorBadge
-                ]}
-              >
-                {transactionStatus.success ? '✅ Success' : '❌ Failed'}
-              </Badge>
-            )}
-          </View>
-
-          {transactionStatus ? (
-            <View style={{ marginTop: 8 }}>
-              {transactionStatus.success ? (
-                <View>
-                  <Paragraph style={styles.statusText}>
-                    <Text style={styles.statusLabel}>Transaction Hash:</Text>{' '}
-                    {transactionStatus.transactionHash ? (
-                      <Text style={styles.hashText}>
-                        {transactionStatus.transactionHash.slice(0, 10)}...
-                        {transactionStatus.transactionHash.slice(-8)}
-                      </Text>
-                    ) : (
-                      'N/A'
-                    )}
-                  </Paragraph>
-                  {transactionStatus.blockNumber && (
-                    <Paragraph style={styles.statusText}>
-                      <Text style={styles.statusLabel}>Block:</Text>{' '}
-                      {transactionStatus.blockNumber}
-                    </Paragraph>
-                  )}
-                </View>
-              ) : (
-                <View>
-                  <Paragraph style={[styles.statusText, styles.errorText]}>
-                    <Text style={styles.statusLabel}>Error:</Text>{' '}
-                    {transactionStatus.error || 'Unknown error'}
-                  </Paragraph>
-                  {transactionStatus.stage && (
-                    <Paragraph style={styles.statusText}>
-                      <Text style={styles.statusLabel}>Stage:</Text>{' '}
-                      {transactionStatus.stage}
-                    </Paragraph>
-                  )}
-                </View>
-              )}
-            </View>
-          ) : (
-            <Paragraph numberOfLines={3}>
-              {state.fullMessage ||
-                (state.isComplete ? '(Decoded)' : '(Incomplete)')}
-            </Paragraph>
-          )}
-
-          <View style={{ marginTop: 8 }}>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginBottom: 6,
-              }}
-            >
-              <Text>{`Chunks: ${progress.received}/${progress.total}`}</Text>
-              <View style={{ flex: 1 }} />
-              <Text>{`${progress.percent}%`}</Text>
-            </View>
-            <ProgressBar
-              progress={progress.percent / 100}
-              style={{ height: 8, borderRadius: 6 }}
-              color={transactionStatus?.success === false ? '#f44336' : undefined}
-            />
-            <View
-              style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}
-            >
-              {Array.from({ length: state.totalChunks }, (_, i) => {
-                const idx = i + 1;
-                const have = state.chunks.has(idx);
-                return (
-                  <Badge
-                    key={idx}
-                    style={[
-                      styles.chunkBadge,
-                      have ? styles.chunkHave : styles.chunkMissing,
-                    ]}
-                  >
-                    {idx}
-                  </Badge>
-                );
-              })}
-            </View>
-          </View>
-        </Card.Content>
-      </Card>
-    );
-  };
-
-  const allMessages = Array.from(masterState.values()).sort(
-    (a, b) => b.id - a.id
-  );
+export default function MeshTrackerPage(): React.JSX.Element {
+  const { isBroadcasting, getCurrentBroadcastInfo, masterState, hasInternet } = useBle();
   const currentBroadcast = getCurrentBroadcastInfo();
 
-  return (
-    <PaperProvider theme={theme}>
-      <View style={styles.container}>
-        <Surface style={styles.broadcasterSection} elevation={2}>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Title style={styles.sectionTitle}>Mesh Node</Title>
-            <View style={styles.internetStatusContainer}>
-              <Icon
-                source={hasInternet ? 'wifi' : 'bluetooth'}
-                size={24}
-                color={hasInternet ? '#4CAF50' : '#2196F3'}
-              />
-              <Text
-                style={{
-                  marginLeft: 8,
-                  color: hasInternet ? '#4CAF50' : '#2196F3',
-                }}
-              >
-                {hasInternet ? 'Online' : 'BLE Mesh'}
-              </Text>
-            </View>
+  // Extract the state of the active broadcast
+  const activeState = currentBroadcast?.id ? masterState.get(currentBroadcast.id) : null;
+  const isSettled = activeState?.isAck;
+  
+  // Animation Values
+  const pulse1 = useRef(new Animated.Value(1)).current;
+  const pulse2 = useRef(new Animated.Value(1)).current;
+  const pulseOpacity1 = useRef(new Animated.Value(0.6)).current;
+  const pulseOpacity2 = useRef(new Animated.Value(0.4)).current;
+
+  // Mock Hop Counter for visuals
+  const [hopCount, setHopCount] = useState(0);
+
+  useEffect(() => {
+    let anim1: Animated.CompositeAnimation;
+    let anim2: Animated.CompositeAnimation;
+
+    if (isBroadcasting && !isSettled) {
+      const createPulse = (scaleVal: Animated.Value, opacityVal: Animated.Value, delay: number) => {
+        return Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.parallel([
+              Animated.timing(scaleVal, {
+                toValue: 4,
+                duration: 2500,
+                useNativeDriver: true,
+              }),
+              Animated.timing(opacityVal, {
+                toValue: 0,
+                duration: 2500,
+                useNativeDriver: true,
+              })
+            ]),
+            Animated.parallel([
+              Animated.timing(scaleVal, { toValue: 1, duration: 0, useNativeDriver: true }),
+              Animated.timing(opacityVal, { toValue: 0.6, duration: 0, useNativeDriver: true })
+            ])
+          ])
+        );
+      };
+
+      anim1 = createPulse(pulse1, pulseOpacity1, 0);
+      anim2 = createPulse(pulse2, pulseOpacity2, 1250);
+      anim1.start();
+      anim2.start();
+
+      // Mock hop count increment organically over time
+      const hopInterval = setInterval(() => {
+        setHopCount(prev => prev < 3 ? prev + 1 : prev);
+      }, 4000);
+
+      return () => {
+        anim1.stop();
+        anim2.stop();
+        clearInterval(hopInterval);
+        pulse1.setValue(1);
+        pulse2.setValue(1);
+      };
+    } else {
+      pulse1.setValue(1);
+      pulse2.setValue(1);
+      pulseOpacity1.setValue(0);
+      pulseOpacity2.setValue(0);
+    }
+  }, [isBroadcasting, isSettled]);
+
+  const renderTimelineItem = (title: string, subtitle: string, isActive: boolean, isCompleted: boolean, isLast: boolean = false) => {
+    return (
+      <View style={styles.timelineItem}>
+        {/* Node & Line */}
+        <View style={styles.timelineTrack}>
+          <View style={[
+            styles.timelineNode, 
+            isCompleted && styles.nodeCompleted, 
+            isActive && !isCompleted && styles.nodeActive
+          ]}>
+            {isCompleted && <Feather name="check" size={12} color="#FFF" />}
           </View>
-
-          <View
-            style={{
-              marginVertical: 8,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, color: '#555' }}>
-                Currently broadcasting:
-              </Text>
-              <Paragraph style={{ fontWeight: '700', marginTop: 2 }}>
-                {isBroadcasting && currentBroadcast.text
-                  ? `🔊 ${currentBroadcast.text}`
-                  : '— not broadcasting —'}
-              </Paragraph>
-            </View>
-            <IconButton
-              mode="outlined"
-              onPress={() => {
-                if (isBroadcasting) stopBroadcasting();
-                else startBroadcasting();
-              }}
-              icon={isBroadcasting ? 'pause' : 'play'}
-              contentStyle={{ flexDirection: 'row-reverse' }}
-            />
-          </View>
-
-          <TextInput
-            mode="outlined"
-            label="Broadcast New Message"
-            value={message}
-            onChangeText={setMessage}
-            style={styles.textInput}
-            multiline
-          />
-          <Button
-            mode="contained"
-            onPress={handleStartUserBroadcast}
-            disabled={!message.trim()}
-            style={styles.button}
-          >
-            Broadcast Message
-          </Button>
-        </Surface>
-
-        <Surface style={styles.receiverSection} elevation={2}>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Title style={styles.sectionTitle}>Network Messages</Title>
-            <Button mode="text" onPress={handleClearEverythingAndStop} compact>
-              Clear
-            </Button>
-          </View>
-
-          <ScrollView>
-            {allMessages.length === 0 ? (
-              <Paragraph style={styles.placeholderText}>
-                Listening for messages...
-              </Paragraph>
-            ) : (
-              allMessages.map((msg) => renderReceivedMessageCard(msg))
-            )}
-          </ScrollView>
-        </Surface>
+          {!isLast && <View style={[styles.timelineLine, (isCompleted || isActive) && styles.lineActive]} />}
+        </View>
+        
+        {/* Content */}
+        <View style={styles.timelineContent}>
+          <Text style={[styles.timelineTitle, (isActive || isCompleted) && styles.textActive]}>{title}</Text>
+          <Text style={styles.timelineSubtitle}>{subtitle}</Text>
+        </View>
       </View>
-    </PaperProvider>
-  );
-};
+    );
+  };
 
-// --- Styles ---
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Background Blobs */}
+      <View style={styles.blob1} />
+      <View style={styles.blob2} />
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        
+        {/* Radar Section */}
+        <View style={styles.radarSection}>
+          <View style={styles.radarWrapper}>
+            <Animated.View style={[styles.pulseCircle, { transform: [{ scale: pulse1 }], opacity: pulseOpacity1 }]} />
+            <Animated.View style={[styles.pulseCircle, { transform: [{ scale: pulse2 }], opacity: pulseOpacity2 }]} />
+            <View style={[styles.radarCenter, isSettled && styles.radarCenterSuccess]}>
+              <Feather name={isSettled ? "check" : (hasInternet ? "wifi" : "radio")} size={32} color="#FFF" />
+            </View>
+          </View>
+
+          <Text style={styles.radarStatusText}>
+            {isSettled ? "Transaction Settled!" : (isBroadcasting ? "Broadcasting Offline..." : "Mesh Tracker Ready")}
+          </Text>
+          <Text style={styles.radarSubText}>
+            {isBroadcasting && !isSettled ? `Relayed to ${hopCount} nearby devices` : "Hop Pay mesh network active"}
+          </Text>
+        </View>
+
+        {/* Timeline Section */}
+        <BlurView intensity={30} tint="dark" style={styles.timelineCard}>
+          <Text style={styles.cardTitle}>Packet Journey</Text>
+          
+          {renderTimelineItem(
+            "Payload Signed Offline",
+            "Cryptographically verified intention to pay",
+            true, // Active
+            isBroadcasting || isSettled || false // Completed
+          )}
+          
+          {renderTimelineItem(
+            "Broadcasting via BLE",
+            "Chunking packet and blasting to nearby physical devices",
+            isBroadcasting,
+            hopCount > 0 || isSettled || false
+          )}
+          
+          {renderTimelineItem(
+            `Relayed via Mesh (Hops: ${hopCount})`,
+            "Nearby phones caught the packet and are re-broadcasting",
+            hopCount > 0 && !isSettled,
+            hopCount > 1 || isSettled || false
+          )}
+          
+          {renderTimelineItem(
+            "Found Internet Gateway",
+            "A device with cellular connected to the mainland",
+            isSettled || false,
+            isSettled || false
+          )}
+
+          {renderTimelineItem(
+            "Decentro API Settlement",
+            "Real ₹ INR funds hit the receiver's connected bank account",
+            isSettled || false,
+            isSettled || false,
+            true
+          )}
+        </BlurView>
+        
+        {isSettled && (
+          <TouchableOpacity style={styles.receiptBtn}>
+            <Feather name="file-text" size={20} color="#FFF" style={{marginRight: 8}}/>
+            <Text style={styles.receiptBtnText}>View Receipt</Text>
+          </TouchableOpacity>
+        )}
+
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0f4f7',
+    backgroundColor: THEME.bg,
   },
-  broadcasterSection: {
-    padding: 15,
-    margin: 10,
-    borderRadius: 12,
+  blob1: {
+    position: "absolute",
+    top: 50,
+    left: -100,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: THEME.secondary,
+    opacity: 0.15,
   },
-  receiverSection: {
+  blob2: {
+    position: "absolute",
+    bottom: 50,
+    right: -100,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: THEME.primary,
+    opacity: 0.15,
+  },
+  scrollContent: {
+    padding: 24,
+    paddingTop: 40,
+  },
+  radarSection: {
+    alignItems: "center",
+    justifyContent: "center",
+    height: 280,
+    marginBottom: 16,
+  },
+  radarWrapper: {
+    width: 80,
+    height: 80,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  radarCenter: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: THEME.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+    shadowColor: THEME.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  radarCenterSuccess: {
+    backgroundColor: THEME.success,
+    shadowColor: THEME.success,
+  },
+  pulseCircle: {
+    position: "absolute",
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: THEME.primary,
+    zIndex: 1,
+  },
+  radarStatusText: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: THEME.text,
+    marginTop: 40,
+    letterSpacing: 0.5,
+  },
+  radarSubText: {
+    fontSize: 14,
+    color: THEME.primary,
+    marginTop: 8,
+    fontWeight: "600",
+  },
+  timelineCard: {
+    borderRadius: 24,
+    padding: 24,
+    backgroundColor: THEME.glassBg,
+    borderColor: THEME.glassBorder,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: THEME.text,
+    marginBottom: 24,
+  },
+  timelineItem: {
+    flexDirection: "row",
+    marginBottom: 0,
+  },
+  timelineTrack: {
+    alignItems: "center",
+    width: 30,
+    marginRight: 16,
+  },
+  timelineNode: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: THEME.bg,
+    borderWidth: 2,
+    borderColor: THEME.glassBorder,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2,
+  },
+  nodeActive: {
+    borderColor: THEME.primary,
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
+  },
+  nodeCompleted: {
+    borderColor: THEME.success,
+    backgroundColor: THEME.success,
+  },
+  timelineLine: {
+    width: 2,
+    height: 50,
+    backgroundColor: THEME.glassBorder,
+    marginVertical: -2,
+    zIndex: 1,
+  },
+  lineActive: {
+    backgroundColor: THEME.primary,
+    opacity: 0.5,
+  },
+  timelineContent: {
     flex: 1,
-    padding: 15,
-    margin: 10,
-    marginTop: 0,
-    borderRadius: 12,
+    paddingBottom: 30,
   },
-  sectionTitle: {
-    textAlign: 'left',
-    marginBottom: 12,
-    fontWeight: 600,
-  },
-  internetSwitchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  internetStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  textInput: {
-    marginBottom: 10,
-    minHeight: 64,
-  },
-  button: {
-    paddingVertical: 6,
-  },
-  placeholderText: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 20,
-  },
-  messageCard: {
-    marginBottom: 10,
-    elevation: 0,
-    shadowColor: 'transparent',
-    backgroundColor: '#fff',
-  },
-  messageTitle: {
-    fontSize: 16,
-  },
-  chunkBadge: {
-    margin: 3,
-    paddingHorizontal: 6,
-  },
-  chunkHave: {
-    backgroundColor: '#c8e6c9',
-    color: '#0b6623',
-  },
-  chunkMissing: {
-    backgroundColor: '#ffe0b2',
-    color: '#6a4a00',
-  },
-  successCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
-  },
-  errorCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#f44336',
-  },
-  successBadge: {
-    backgroundColor: '#4CAF50',
-    color: '#fff',
-  },
-  errorBadge: {
-    backgroundColor: '#f44336',
-    color: '#fff',
-  },
-  statusText: {
-    fontSize: 13,
+  timelineTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: THEME.textMuted,
     marginBottom: 4,
   },
-  statusLabel: {
-    fontWeight: '600',
-    color: '#555',
+  textActive: {
+    color: THEME.text,
   },
-  hashText: {
-    fontFamily: 'monospace',
-    fontSize: 12,
+  timelineSubtitle: {
+    fontSize: 13,
+    color: THEME.textMuted,
+    opacity: 0.7,
   },
-  errorText: {
-    color: '#f44336',
+  receiptBtn: {
+    flexDirection: "row",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
   },
+  receiptBtnText: {
+    color: THEME.text,
+    fontWeight: "700",
+    fontSize: 15,
+  }
 });
-
-export default MeshScreen;
