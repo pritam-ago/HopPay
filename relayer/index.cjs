@@ -44,36 +44,36 @@ const CONTRACT_ABI = [
 // ─── Pending Queue ────────────────────────────────────────────────────────────
 const pendingQueue = new Map();
 
-// ─── Local EIP-712 Signature Verification ────────────────────────────────────
+// ─── Local Signature Verification ────────────────────────────────────────────
+// Must match the contract's verification:
+//   messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid))
+//   ECDSA.recover(keccak256("\x19Ethereum Signed Message:\n32" + messageHash), signature)
 
 async function verifySignature(payload) {
   try {
     const { parameters, contractAddress } = payload;
-    const domain = {
-      name: TOKEN_NAME,
-      version: TOKEN_VERSION,
-      chainId: CHAIN_ID,
-      verifyingContract: contractAddress,
-    };
-    const types = {
-      TransferWithAuthorization: [
-        { name: "from", type: "address" },
-        { name: "to", type: "address" },
-        { name: "value", type: "uint256" },
-        { name: "validAfter", type: "uint256" },
-        { name: "validBefore", type: "uint256" },
-        { name: "nonce", type: "bytes32" },
-      ],
-    };
-    const value = {
-      from: parameters.from.toLowerCase(),
-      to: parameters.to.toLowerCase(),
-      value: BigInt(parameters.value),
-      validAfter: BigInt(parameters.validAfter),
-      validBefore: BigInt(parameters.validBefore),
-      nonce: parameters.nonce,
-    };
-    const recovered = ethers.verifyTypedData(domain, types, value, parameters.signature);
+
+    // Replicate the contract's keccak256(abi.encodePacked(...))
+    const messageHash = ethers.solidityPackedKeccak256(
+      ["address", "address", "uint256", "uint256", "uint256", "bytes32", "address", "uint256"],
+      [
+        parameters.from,
+        parameters.to,
+        BigInt(parameters.value),
+        BigInt(parameters.validAfter),
+        BigInt(parameters.validBefore),
+        parameters.nonce,
+        contractAddress,
+        BigInt(CHAIN_ID),
+      ]
+    );
+
+    // hashMessage adds the "\x19Ethereum Signed Message:\n32" prefix
+    const recovered = ethers.recoverAddress(
+      ethers.hashMessage(ethers.getBytes(messageHash)),
+      parameters.signature
+    );
+
     return recovered.toLowerCase() === parameters.from.toLowerCase();
   } catch {
     return false;

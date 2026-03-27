@@ -14,8 +14,13 @@ import { useBle, submitTransactionToBlockchain } from "@/contexts/BleContext";
 import { CONTRACT_CONFIG, TransactionPayload } from "@/constants/contracts";
 import { ethers } from "ethers";
 
-// Create EIP-3009 transferWithAuthorization signature using EIP-712 typed data signing
-// The contract uses EIP712._hashTypedDataV4, so we must use EIP-712 signing, not solidityPackedKeccak256
+// Create transferWithAuthorization signature matching the deployed contract.
+//
+// The contract (EIPThreeDoubleZeroNine.sol) does:
+//   bytes32 messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid));
+//   ECDSA.recover(keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)), signature)
+//
+// So we must sign with the same simple-hash approach, NOT EIP-712 signTypedData.
 const createTransferWithAuthorizationSignature = async (
   from: string,
   to: string,
@@ -29,7 +34,7 @@ const createTransferWithAuthorizationSignature = async (
 ): Promise<string> => {
   try {
     console.log(
-      "🔐 Creating EIP-3009 transferWithAuthorization signature using EIP-712 typed data..."
+      "🔐 Creating transferWithAuthorization signature (simple keccak256 + Ethereum prefix)..."
     );
 
     // Create wallet from private key
@@ -44,99 +49,78 @@ const createTransferWithAuthorizationSignature = async (
       );
     }
 
-    // EIP-712 Domain - must match the contract's EIP712 constructor
-    // The contract uses: EIP712(name, "1") where name is the token name
-    const domain = {
-      name: CONTRACT_CONFIG.TOKEN_NAME, // Must match contract deployment name
-      version: CONTRACT_CONFIG.TOKEN_VERSION, // "1" as per contract
-      chainId: chainId,
-      verifyingContract: contractAddress,
-    };
-
-    // EIP-712 Types - must match the contract's TRANSFER_WITH_AUTHORIZATION_TYPEHASH structure
-    const types = {
-      TransferWithAuthorization: [
-        { name: "from", type: "address" },
-        { name: "to", type: "address" },
-        { name: "value", type: "uint256" },
-        { name: "validAfter", type: "uint256" },
-        { name: "validBefore", type: "uint256" },
-        { name: "nonce", type: "bytes32" },
-      ],
-    };
-
-    // Message value - ensure nonce is in correct format for EIP-712
-    // For EIP-712 bytes32 type, ethers.js signTypedData expects a hex string
     // Ensure nonce is a valid 32-byte hex string
-    let nonceValue: string;
+    let nonceBytes32: string;
     if (nonce.startsWith("0x")) {
-      // Verify it's exactly 32 bytes (64 hex chars + "0x" = 66 total chars)
       const nonceBytes = ethers.getBytes(nonce);
       if (nonceBytes.length !== 32) {
         throw new Error(`Nonce must be exactly 32 bytes, got ${nonceBytes.length} bytes`);
       }
-      nonceValue = nonce.toLowerCase(); // Normalize to lowercase
+      nonceBytes32 = nonce.toLowerCase();
     } else {
-      // If it's not a hex string, add 0x prefix
       if (nonce.length !== 64) {
         throw new Error(`Nonce must be 64 hex characters, got ${nonce.length}`);
       }
-      nonceValue = "0x" + nonce.toLowerCase();
+      nonceBytes32 = "0x" + nonce.toLowerCase();
     }
-    
-    const transferValue = {
-      from: from.toLowerCase(), // Normalize addresses
-      to: to.toLowerCase(),
-      value: BigInt(value), // Convert to BigInt for proper encoding
-      validAfter: BigInt(validAfter),
-      validBefore: BigInt(validBefore),
-      nonce: nonceValue, // bytes32 as hex string
-    };
 
-    console.log("📝 EIP-712 Domain:", domain);
-    console.log("📝 Message parameters:", {
-      from: transferValue.from,
-      to: transferValue.to,
-      value: transferValue.value.toString(),
-      validAfter: transferValue.validAfter.toString(),
-      validBefore: transferValue.validBefore.toString(),
-      nonce: ethers.hexlify(transferValue.nonce),
+    console.log("📝 Signing parameters:", {
+      from,
+      to,
+      value,
+      validAfter,
+      validBefore,
+      nonce: nonceBytes32,
+      contractAddress,
+      chainId,
     });
 
-    // Sign using EIP-712 typed data - this is what the contract expects
-    // The contract uses _hashTypedDataV4 which creates the EIP-712 digest
-    const signature = await wallet.signTypedData(domain, types, transferValue);
+    // Replicate contract's keccak256(abi.encodePacked(...))
+    const messageHash = ethers.solidityPackedKeccak256(
+      ["address", "address", "uint256", "uint256", "uint256", "bytes32", "address", "uint256"],
+      [
+        from,
+        to,
+        BigInt(value),
+        BigInt(validAfter),
+        BigInt(validBefore),
+        nonceBytes32,
+        contractAddress,
+        BigInt(chainId),
+      ]
+    );
 
-    console.log("✅ EIP-712 signature created:", {
+    console.log("📝 Message hash:", messageHash);
+
+    // Sign with Ethereum prefix (matches ECDSA.recover in contract)
+    // wallet.signMessage(bytes) adds "\x19Ethereum Signed Message:\n32" prefix automatically
+    const signature = await wallet.signMessage(ethers.getBytes(messageHash));
+
+    console.log("✅ Signature created:", {
       signature,
       signatureLength: signature.length,
     });
 
-    // Verify signature using EIP-712
+    // Verify locally before broadcasting
     try {
-      // Recover signer from EIP-712 signature
-      const recoveredSigner = ethers.verifyTypedData(
-        domain,
-        types,
-        transferValue,
+      const recoveredSigner = ethers.recoverAddress(
+        ethers.hashMessage(ethers.getBytes(messageHash)),
         signature
       );
-      console.log("🔍 EIP-712 Signature verification:", {
-        recoveredSigner,
-        expectedSigner: from,
-        isValid: recoveredSigner.toLowerCase() === from.toLowerCase(),
-      });
+      const isValid = recoveredSigner.toLowerCase() === from.toLowerCase();
+      console.log("🔍 Signature verification:", { recoveredSigner, expectedSigner: from, isValid });
+      if (!isValid) {
+        throw new Error(`Signature verification failed: recovered ${recoveredSigner}, expected ${from}`);
+      }
     } catch (verifyError) {
-      console.warn("⚠️ EIP-712 signature verification failed:", verifyError);
+      console.warn("⚠️ Signature verification failed:", verifyError);
+      throw verifyError;
     }
 
     return signature;
   } catch (error) {
-    console.error(
-      "❌ Error creating EIP-712 signature:",
-      error
-    );
-    throw new Error("Failed to create transferWithAuthorization signature");
+    console.error("❌ Error creating signature:", error);
+    throw new Error(`Failed to create transferWithAuthorization signature: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -343,12 +327,13 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           }, 800);
         } else {
           console.error("❌ Direct submission failed:", responseObj.error);
-          // Show error but still complete the flow
+          // Transaction failed — pass the response with success:false back
+          // transaction.tsx will check response.success and show an error Alert
           setCurrentStep(TRANSACTION_STEPS.length - 1);
           setIsCompleted(true);
           setTimeout(() => {
             onComplete(directSubmissionResponse);
-          }, 1500);
+          }, 1000);
         }
       } catch (parseErr) {
         console.error("❌ Error parsing direct submission response:", parseErr);
@@ -535,10 +520,9 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         throw new Error("No wallet private key available for signing");
       }
 
-      // Convert amount to wei (assuming 18 decimals)
-      const valueInWei = (
-        BigInt(transactionData.amount) * BigInt(10 ** 18)
-      ).toString();
+      // Convert amount to wei (18 decimals). Use ethers.parseUnits to handle
+      // decimal values like "0.5" safely — BigInt("0.5") would throw a SyntaxError.
+      const valueInWei = ethers.parseUnits(transactionData.amount, 18).toString();
 
       // Create real EIP-3009 signature using wallet's private key
       const realSignature = await createTransferWithAuthorizationSignature(

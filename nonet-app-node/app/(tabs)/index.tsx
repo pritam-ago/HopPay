@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   FlatList,
   Alert,
   SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
 import { CameraView, CameraType } from "expo-camera";
 import { router } from "expo-router";
@@ -14,6 +15,8 @@ import { Colors } from "@/constants/theme";
 import { useWallet, ScannedAddress } from "@/contexts/WalletContext";
 import { NeoBrutalismColors } from '@/constants/neoBrutalism';
 import { useBle } from "@/contexts/BleContext";
+import { CONTRACT_CONFIG } from "@/constants/contracts";
+import { ethers } from "ethers";
 
 // --- QR Parsing ---
 export interface MerchantQRData {
@@ -108,13 +111,55 @@ export default function Scan(): React.JSX.Element {
   const [isScanning, setIsScanning] = useState(false);
   const [facing, setFacing] = useState<CameraType>("back");
 
+  // MeshT token balance
+  const [tokenBalance, setTokenBalance] = useState<string | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+
   // Use wallet context
   const {
+    userWalletAddress,
+    isLoggedIn,
     scannedAddresses,
     addScannedAddress,
     clearScannedAddresses,
     removeScannedAddress,
   } = useWallet();
+
+  // Fetch MeshT token balance from the contract
+  const fetchTokenBalance = useCallback(async () => {
+    if (!userWalletAddress) {
+      setTokenBalance(null);
+      return;
+    }
+
+    setIsLoadingBalance(true);
+    try {
+      const provider = new ethers.JsonRpcProvider(CONTRACT_CONFIG.RPC_URL);
+      const balanceAbi = ["function balanceOf(address owner) view returns (uint256)"];
+      const contract = new ethers.Contract(
+        CONTRACT_CONFIG.CONTRACT_ADDRESS,
+        balanceAbi,
+        provider
+      );
+      const balance = await contract.balanceOf(userWalletAddress) as bigint;
+      const formatted = ethers.formatUnits(balance, 18);
+      // Show up to 4 decimal places, strip trailing zeros
+      const display = parseFloat(formatted).toFixed(4).replace(/\.?0+$/, '');
+      setTokenBalance(display);
+    } catch (error) {
+      console.error("Failed to fetch token balance:", error);
+      setTokenBalance("—");
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [userWalletAddress]);
+
+  // Auto-refresh balance every 30 seconds
+  useEffect(() => {
+    fetchTokenBalance();
+    const interval = setInterval(fetchTokenBalance, 30000);
+    return () => clearInterval(interval);
+  }, [fetchTokenBalance]);
 
   const handleBarcodeScanned = ({ data }: { data: string }) => {
     const parsed = parseMerchantQR(data);
@@ -233,6 +278,29 @@ export default function Scan(): React.JSX.Element {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
       <Text style={styles.title}>QR Code Scanner</Text>
+
+      {/* MeshT Token Balance Card */}
+      <View style={styles.balanceCard}>
+        <View style={styles.balanceHeader}>
+          <Text style={styles.balanceLabel}>MESHT BALANCE</Text>
+          <TouchableOpacity onPress={fetchTokenBalance} disabled={isLoadingBalance}>
+            <Text style={styles.refreshText}>{isLoadingBalance ? '⏳' : '🔄'}</Text>
+          </TouchableOpacity>
+        </View>
+        {!isLoggedIn ? (
+          <Text style={styles.balanceNoWallet}>No wallet connected</Text>
+        ) : isLoadingBalance && tokenBalance === null ? (
+          <ActivityIndicator size="small" color={NeoBrutalismColors.primary} style={{ marginVertical: 8 }} />
+        ) : (
+          <View style={styles.balanceValueRow}>
+            <Text style={styles.balanceValue}>{tokenBalance ?? '—'}</Text>
+            <Text style={styles.balanceSymbol}>MESHT</Text>
+          </View>
+        )}
+        <Text style={styles.balanceContract}>
+          Flow EVM Testnet · {CONTRACT_CONFIG.CONTRACT_ADDRESS.slice(0,6)}...{CONTRACT_CONFIG.CONTRACT_ADDRESS.slice(-4)}
+        </Text>
+      </View>
 
       <TouchableOpacity
         style={styles.scanButton}
@@ -454,5 +522,63 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.5,
+  },
+
+  // --- MeshT Token Balance Card ---
+  balanceCard: {
+    backgroundColor: NeoBrutalismColors.surface,
+    borderWidth: 3,
+    borderColor: NeoBrutalismColors.primary,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: NeoBrutalismColors.primary,
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 0,
+    elevation: 6,
+  },
+  balanceHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  balanceLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: NeoBrutalismColors.primary,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+  },
+  refreshText: {
+    fontSize: 18,
+  },
+  balanceNoWallet: {
+    fontSize: 14,
+    color: NeoBrutalismColors.textTertiary,
+    fontStyle: "italic",
+    marginVertical: 4,
+  },
+  balanceValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginBottom: 8,
+  },
+  balanceValue: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: NeoBrutalismColors.textPrimary,
+    marginRight: 8,
+  },
+  balanceSymbol: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: NeoBrutalismColors.primary,
+  },
+  balanceContract: {
+    fontSize: 11,
+    color: NeoBrutalismColors.textTertiary,
+    fontFamily: "monospace",
   },
 });

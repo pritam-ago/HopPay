@@ -156,22 +156,18 @@ export const submitTransactionToBlockchain = async (
       });
     }
 
-    // Check token balance of 'from' address before submitting
-    // Use read-only contract instance (provider only, no signer) similar to native balance check
+    // Check token balance of 'from' address before submitting using balanceOf
     try {
       console.log("💰 [BLOCKCHAIN] Checking token balance of from address...");
       console.log(`💰 [BLOCKCHAIN] Contract address: ${contractAddress}`);
       console.log(`💰 [BLOCKCHAIN] From address: ${parameters.from}`);
       
-      // Create a read-only contract instance using just the provider (no signer needed for view functions)
-      // This is the same pattern as provider.getBalance() for native tokens
-      const senderWallet = new ethers.Wallet(
-        CONTRACT_CONFIG.SENDER_PVT_KEY,
-        provider
-      );
+      // Read-only contract instance — no signer needed for view functions
+      const balanceAbi = ["function balanceOf(address owner) view returns (uint256)"];
+      const readContract = new ethers.Contract(contractAddress, balanceAbi, provider);
       
       console.log("💰 [BLOCKCHAIN] Calling balanceOf on contract...");
-      const tokenBalancePromise = provider.getBalance(senderWallet.address);
+      const tokenBalancePromise = readContract.balanceOf(parameters.from) as Promise<bigint>;
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error("Token balance check timeout")), 10000)
       );
@@ -432,6 +428,8 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
     }
   );
   const stopScannerRef = useRef<(() => void) | null>(null);
+  // Tracks stall-detection timers per message id
+  const stallTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   // Force update function for UI re-renders
   const forceUpdate = () => {
@@ -476,50 +474,89 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
     entry.chunks.set(chunkNumber, chunk);
     forceUpdate();
 
-    if (entry.chunks.size === entry.totalChunks) {
-      entry.isComplete = true;
-
-      console.log(`📦 [MESH] All chunks received for message ID: ${id}`);
-      console.log(`📦 [MESH] Total chunks: ${entry.totalChunks}, Is ACK: ${entry.isAck}`);
-
-      // --- CORRECTED REASSEMBLY LOGIC ---
-      const DATA_PER_CHUNK = 6;
-      const fullBinary = new Uint8Array(entry.totalChunks * DATA_PER_CHUNK);
-      let offset = 0;
-
-      // This loop ensures chunks are placed in the correct order (1, 2, 3, ...),
-      // regardless of the order they were received in.
-      for (let i = 1; i <= entry.totalChunks; i++) {
-        const part = entry.chunks.get(i)!.slice(3); // Get chunk by its number and slice header
-        fullBinary.set(part, offset);
-        offset += part.length;
-      }
-
-      const decoder = new TextDecoder();
-      const fullMessage = decoder.decode(fullBinary).replace(/\0/g, ""); // Remove null padding
-      entry.fullMessage = fullMessage;
-      // --- END OF FIX ---
-
-      console.log(`✅ [MESH] Message reassembled. Length: ${fullMessage.length} chars`);
-      console.log(`✅ [MESH] Message preview: ${fullMessage.substring(0, 150)}...`);
-      console.log(`🌐 [MESH] Device has internet: ${hasInternet}`);
-
-      forceUpdate();
-
-      if (hasInternet && !entry.isAck) {
-        console.log(`🚀 [MESH] This device has internet - submitting to blockchain...`);
-        handleApiResponse(id, fullMessage);
-      } else if (!hasInternet) {
-        console.log(`📡 [MESH] This device has no internet - re-broadcasting chunks...`);
-        // Also ensure re-broadcasted chunks are in order
-        const orderedChunks = [];
-        for (let i = 1; i <= entry.totalChunks; i++) {
-          orderedChunks.push(entry.chunks.get(i)!);
+    // --- STALL DETECTION: Reset timer on every new chunk ---
+    // If we reach ≥80% chunks but stop receiving for 15 s, force reassembly
+    // with zero-filled gaps rather than waiting forever.
+    const stallTimers = stallTimersRef.current;
+    if (stallTimers.has(id)) {
+      clearTimeout(stallTimers.get(id)!);
+      stallTimers.delete(id);
+    }
+    if (!entry.isComplete) {
+      const STALL_TIMEOUT_MS = 15000;
+      const stallTimer = setTimeout(() => {
+        const currentEntry = masterStateRef.current.get(id);
+        if (!currentEntry || currentEntry.isComplete) return;
+        const pct = Math.round((currentEntry.chunks.size / currentEntry.totalChunks) * 100);
+        if (currentEntry.chunks.size >= Math.ceil(currentEntry.totalChunks * 0.8)) {
+          // Find missing chunks for logging
+          const missing: number[] = [];
+          for (let i = 1; i <= currentEntry.totalChunks; i++) {
+            if (!currentEntry.chunks.has(i)) missing.push(i);
+          }
+          console.warn(`⚠️ [MESH] Stall detected for message ${id}: ${currentEntry.chunks.size}/${currentEntry.totalChunks} chunks (${pct}%). Missing: [${missing.join(', ')}]. Attempting partial reassembly...`);
+          reassembleAndProcess(id, currentEntry);
         }
-        addToBroadcastQueue(id, orderedChunks);
-      } else if (entry.isAck) {
-        console.log(`✅ [MESH] Received ACK response - transaction complete`);
+      }, STALL_TIMEOUT_MS);
+      stallTimers.set(id, stallTimer);
+    }
+    // --- END STALL DETECTION ---
+
+    if (entry.chunks.size === entry.totalChunks) {
+      // Cancel stall timer — we got everything
+      if (stallTimers.has(id)) {
+        clearTimeout(stallTimers.get(id)!);
+        stallTimers.delete(id);
       }
+      reassembleAndProcess(id, entry);
+    }
+  };
+
+  // Reassemble message from chunks (tolerates missing chunks, fills with zeros)
+  const reassembleAndProcess = (id: number, entry: MessageState) => {
+    if (entry.isComplete) return; // Already handled
+    entry.isComplete = true;
+
+    console.log(`📦 [MESH] Reassembling message ID: ${id} (${entry.chunks.size}/${entry.totalChunks} chunks)`);
+
+    const DATA_PER_CHUNK = 6;
+    const fullBinary = new Uint8Array(entry.totalChunks * DATA_PER_CHUNK); // zero-initialised
+    let offset = 0;
+
+    for (let i = 1; i <= entry.totalChunks; i++) {
+      const chunk = entry.chunks.get(i);
+      if (chunk) {
+        const part = chunk.slice(3);
+        fullBinary.set(part, offset);
+      } else {
+        console.warn(`⚠️ [MESH] Missing chunk ${i} for message ${id} — filling with zeros`);
+      }
+      offset += DATA_PER_CHUNK;
+    }
+
+    const decoder = new TextDecoder();
+    const fullMessage = decoder.decode(fullBinary).replace(/\0/g, '');
+    entry.fullMessage = fullMessage;
+
+    console.log(`✅ [MESH] Message reassembled. Length: ${fullMessage.length} chars`);
+    console.log(`✅ [MESH] Message preview: ${fullMessage.substring(0, 150)}...`);
+    console.log(`🌐 [MESH] Device has internet: ${hasInternet}`);
+
+    forceUpdate();
+
+    if (hasInternet && !entry.isAck) {
+      console.log(`🚀 [MESH] This device has internet - submitting to blockchain...`);
+      handleApiResponse(id, fullMessage);
+    } else if (!hasInternet) {
+      console.log(`📡 [MESH] This device has no internet - re-broadcasting chunks...`);
+      const orderedChunks: Uint8Array[] = [];
+      for (let i = 1; i <= entry.totalChunks; i++) {
+        const c = entry.chunks.get(i);
+        if (c) orderedChunks.push(c);
+      }
+      addToBroadcastQueue(id, orderedChunks);
+    } else if (entry.isAck) {
+      console.log(`✅ [MESH] Received ACK response - transaction complete`);
     }
   };
 
