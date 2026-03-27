@@ -187,12 +187,33 @@ app.post("/relay", async (req, res) => {
     // INR payout
     let payoutResult = null;
     const amountInr = meshtToInr(parameters.value);
+
+    console.log(`[PAYOUT] Converting ${ethers.formatUnits(parameters.value, 18)} MESHT → ₹${amountInr}`);
+
+    // If the "to" address is a UPI VPA (came from UPI QR scan), pay out to it.
+    // Otherwise, attempt to pay the on-chain "to" address's registered UPI (future feature).
     const upiId = payload.upiId ?? null;
 
     if (upiId) {
       console.log(`[PAYOUT] ₹${amountInr} → ${upiId}`);
       payoutResult = await triggerInrPayout(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
       pendingItem.payoutResult = payoutResult;
+      
+      // Log transaction status from Decentro
+      if (payoutResult?.transactionStatus) {
+        console.log(`[PAYOUT] Decentro Transaction Status: ${payoutResult.transactionStatus}`);
+        
+        // Warn if transaction is pending (not immediately settled)
+        if (payoutResult.transactionStatus === "pending") {
+          console.warn(`[PAYOUT] ⚠️  Transaction is PENDING - settlement not immediate`);
+        } else if (payoutResult.transactionStatus === "failure") {
+          console.error(`[PAYOUT] ❌ Transaction FAILED at Decentro level`);
+        } else if (payoutResult.transactionStatus === "success") {
+          console.log(`[PAYOUT] ✅ Transaction SUCCESS at Decentro`);
+        }
+      }
+    } else {
+      console.log(`[PAYOUT] No UPI ID provided — skipping INR payout (crypto-only mode)`);
     }
 
     pendingQueue.set(itemId, pendingItem);
@@ -206,6 +227,7 @@ app.post("/relay", async (req, res) => {
       explorerUrl: `https://evm-testnet.flowscan.io/tx/${txHash}`,
       amountInr,
       payout: payoutResult,
+      payoutStatus: payoutResult?.transactionStatus || "unknown",
       elapsed,
     });
   } catch (err) {
