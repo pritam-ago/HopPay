@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, SafeAreaView } from "react-native";
 import {
   Text,
@@ -12,12 +12,15 @@ import {
 import { useLocalSearchParams, router } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
 import { useBle } from "@/contexts/BleContext";
+import { CONTRACT_CONFIG } from "@/constants/contracts";
 
 export default function TransactionSuccessPage(): React.JSX.Element {
   const theme = useTheme();
   const { stopBroadcasting } = useBle();
-  const { amount, currency, toAddress, chain, txHash, timestamp, fullMessage } =
-    useLocalSearchParams<{
+  const {
+    amount, currency, toAddress, chain, txHash, timestamp, fullMessage,
+    upiId, merchantName, merchantPhone,
+  } = useLocalSearchParams<{
       amount: string;
       currency: string;
       toAddress: string;
@@ -25,7 +28,14 @@ export default function TransactionSuccessPage(): React.JSX.Element {
       txHash: string;
       timestamp: string;
       fullMessage?: string;
+      upiId?: string;
+      merchantName?: string;
+      merchantPhone?: string;
     }>();
+
+  // SMS state
+  const [smsStatus, setSmsStatus] = useState<"sending" | "sent" | "failed" | "none">("none");
+  const [smsPhone, setSmsPhone] = useState<string>("");
 
   const handleGoHome = () => {
     router.replace("/");
@@ -39,10 +49,51 @@ export default function TransactionSuccessPage(): React.JSX.Element {
     stopBroadcasting();
   }, [stopBroadcasting]);
 
-  // Generate signature string from transaction hash (simplified for demo)
+  // ── Trigger SMS on page load ──────────────────────────────────────────────
+  useEffect(() => {
+    const triggerSms = async () => {
+      if (!upiId && !merchantPhone) {
+        console.log("[SMS] No UPI ID or phone — skipping SMS");
+        return;
+      }
+
+      setSmsStatus("sending");
+      try {
+        const smsUrl = CONTRACT_CONFIG.RELAYER_URL.replace("/relay", "/send-sms");
+        console.log("[SMS] Calling:", smsUrl);
+
+        const res = await fetch(smsUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            upiId: upiId || undefined,
+            merchantPhone: merchantPhone || undefined,
+            amount: amount || "0",
+            txHash: txHash || "",
+            merchantName: merchantName || "Merchant",
+          }),
+        });
+
+        const data = await res.json();
+        console.log("[SMS] Response:", data);
+
+        if (data.success) {
+          setSmsStatus("sent");
+          setSmsPhone(data.phone || "");
+        } else {
+          setSmsStatus("failed");
+        }
+      } catch (err) {
+        console.error("[SMS] Error:", err);
+        setSmsStatus("failed");
+      }
+    };
+
+    triggerSms();
+  }, [upiId, merchantPhone, amount, txHash, merchantName]);
+
   const generateSignatureString = (hash: string): string => {
     if (!hash) return "Generating signature...";
-    // This would normally be the actual signature from the transaction
     return `0x${hash.slice(2, 34)}...${hash.slice(-32)}`;
   };
 
@@ -62,7 +113,35 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           </Text>
         </View>
 
-        {/* QR Code Section - MOST IMPORTANT */}
+        {/* SMS Status Card */}
+        {smsStatus !== "none" && (
+          <Card style={[
+            styles.smsCard,
+            smsStatus === "sent" ? styles.smsCardSuccess :
+            smsStatus === "failed" ? styles.smsCardFailed :
+            styles.smsCardSending
+          ]} elevation={2}>
+            <Card.Content style={styles.smsContent}>
+              <Text style={styles.smsIcon}>
+                {smsStatus === "sending" ? "📱" : smsStatus === "sent" ? "✅" : "❌"}
+              </Text>
+              <View style={styles.smsTextContainer}>
+                <Text variant="titleSmall" style={styles.smsTitle}>
+                  {smsStatus === "sending" ? "Sending SMS notification..."
+                   : smsStatus === "sent" ? "SMS Sent to Merchant!"
+                   : "SMS notification failed"}
+                </Text>
+                {smsStatus === "sent" && smsPhone ? (
+                  <Text variant="bodySmall" style={styles.smsPhone}>
+                    Sent to +91{smsPhone}
+                  </Text>
+                ) : null}
+              </View>
+            </Card.Content>
+          </Card>
+        )}
+
+        {/* QR Code Section */}
         <Card style={styles.qrCard} elevation={4}>
           <Card.Content style={styles.qrContent}>
             <Text variant="titleLarge" style={styles.qrTitle}>
@@ -85,7 +164,7 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           </Card.Content>
         </Card>
 
-        {/* Transaction Hash - SECOND MOST IMPORTANT */}
+        {/* Transaction Hash */}
         <Card style={styles.hashCard} elevation={2}>
           <Card.Content>
             <Text variant="titleMedium" style={styles.hashTitle}>
@@ -99,26 +178,22 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           </Card.Content>
         </Card>
 
-        {/* Hash Signature - THIRD MOST IMPORTANT */}
+        {/* Hash Signature */}
         <Card style={styles.signatureCard} elevation={2}>
           <Card.Content>
             <Text variant="titleMedium" style={styles.signatureTitle}>
               Hash Signature
             </Text>
             <Surface style={styles.signatureSurface} elevation={1}>
-              <Text
-                variant="bodyMedium"
-                style={styles.signatureText}
-                selectable
-              >
+              <Text variant="bodyMedium" style={styles.signatureText} selectable>
                 {generateSignatureString(txHash || "")}
               </Text>
             </Surface>
           </Card.Content>
         </Card>
 
-        {/* Full Message Response - Show if available */}
-        {fullMessage && (
+        {/* Full Message Response */}
+        {fullMessage ? (
           <Card style={styles.responseCard} elevation={2}>
             <Card.Content>
               <Text variant="titleMedium" style={styles.responseTitle}>
@@ -126,20 +201,16 @@ export default function TransactionSuccessPage(): React.JSX.Element {
               </Text>
               <Surface style={styles.responseSurface} elevation={1}>
                 <ScrollView style={styles.responseScroll} nestedScrollEnabled>
-                  <Text
-                    variant="bodySmall"
-                    style={styles.responseText}
-                    selectable
-                  >
+                  <Text variant="bodySmall" style={styles.responseText} selectable>
                     {fullMessage}
                   </Text>
                 </ScrollView>
               </Surface>
             </Card.Content>
           </Card>
-        )}
+        ) : null}
 
-        {/* Primary Action - GO HOME BUTTON */}
+        {/* Primary Action */}
         <Button
           mode="contained"
           onPress={handleGoHome}
@@ -149,7 +220,7 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           Go to Home
         </Button>
 
-        {/* Additional Details - Less Important */}
+        {/* Transaction Details */}
         <Card style={styles.detailsCard}>
           <Card.Content>
             <Text variant="titleMedium" style={styles.detailsTitle}>
@@ -158,48 +229,31 @@ export default function TransactionSuccessPage(): React.JSX.Element {
             <Divider style={styles.divider} />
 
             <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>
-                Amount
-              </Text>
-              <Text variant="bodyMedium" style={styles.detailValue}>
-                {amount} {currency}
-              </Text>
+              <Text variant="labelMedium" style={styles.detailLabel}>Amount</Text>
+              <Text variant="bodyMedium" style={styles.detailValue}>{amount} {currency}</Text>
             </View>
 
             <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>
-                Network
-              </Text>
-              <Chip mode="outlined" style={styles.chainChip}>
-                {chain}
-              </Chip>
+              <Text variant="labelMedium" style={styles.detailLabel}>Network</Text>
+              <Chip mode="outlined" style={styles.chainChip}>{chain}</Chip>
             </View>
 
             <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>
-                To Address
-              </Text>
+              <Text variant="labelMedium" style={styles.detailLabel}>To Address</Text>
               <Text variant="bodySmall" style={styles.addressText}>
-                {toAddress
-                  ? `${toAddress.slice(0, 8)}...${toAddress.slice(-8)}`
-                  : "Unknown"}
+                {toAddress ? `${toAddress.slice(0, 8)}...${toAddress.slice(-8)}` : "Unknown"}
               </Text>
             </View>
 
             <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>
-                Time
-              </Text>
+              <Text variant="labelMedium" style={styles.detailLabel}>Time</Text>
               <Text variant="bodyMedium" style={styles.detailValue}>
-                {timestamp
-                  ? new Date(parseInt(timestamp)).toLocaleString()
-                  : "Just now"}
+                {timestamp ? new Date(parseInt(timestamp)).toLocaleString() : "Just now"}
               </Text>
             </View>
           </Card.Content>
         </Card>
 
-        {/* Secondary Action */}
         <Button
           mode="outlined"
           onPress={handleNewTransaction}
@@ -214,188 +268,71 @@ export default function TransactionSuccessPage(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-  },
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 40 },
 
-  // Success Header
-  successHeader: {
-    alignItems: "center",
-    marginBottom: 24,
-    marginTop: 16,
-  },
-  successIcon: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  successTitle: {
-    textAlign: "center",
-    fontWeight: "700",
-  },
+  successHeader: { alignItems: "center", marginBottom: 24, marginTop: 16 },
+  successIcon: { fontSize: 48, marginBottom: 16 },
+  successTitle: { textAlign: "center", fontWeight: "700" },
 
-  // QR Code - MOST IMPORTANT
-  qrCard: {
-    marginBottom: 24,
-    backgroundColor: "#FFFFFF",
-  },
-  qrContent: {
-    alignItems: "center",
-    paddingVertical: 24,
-  },
-  qrTitle: {
-    fontWeight: "700",
-    marginBottom: 20,
-    textAlign: "center",
-    color: "#333",
-  },
+  // SMS Status Card
+  smsCard: { marginBottom: 20, borderRadius: 12 },
+  smsCardSending: { backgroundColor: "#FFF9C4" },
+  smsCardSuccess: { backgroundColor: "#E8F5E9", borderLeftWidth: 4, borderLeftColor: "#4CAF50" },
+  smsCardFailed: { backgroundColor: "#FFEBEE", borderLeftWidth: 4, borderLeftColor: "#F44336" },
+  smsContent: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
+  smsIcon: { fontSize: 28, marginRight: 12 },
+  smsTextContainer: { flex: 1 },
+  smsTitle: { fontWeight: "700", color: "#333" },
+  smsPhone: { color: "#666", marginTop: 2 },
+
+  // QR Code
+  qrCard: { marginBottom: 24, backgroundColor: "#FFFFFF" },
+  qrContent: { alignItems: "center", paddingVertical: 24 },
+  qrTitle: { fontWeight: "700", marginBottom: 20, textAlign: "center", color: "#333" },
   qrContainer: {
-    padding: 16,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    padding: 16, backgroundColor: "#FFFFFF", borderRadius: 12,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
   },
   qrPlaceholder: {
-    width: 200,
-    height: 200,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F5F5F5",
-    borderRadius: 8,
+    width: 200, height: 200, justifyContent: "center",
+    alignItems: "center", backgroundColor: "#F5F5F5", borderRadius: 8,
   },
 
-  // Transaction Hash - SECOND MOST IMPORTANT
-  hashCard: {
-    marginBottom: 20,
-    backgroundColor: "#FFFFFF",
-  },
-  hashTitle: {
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#333",
-  },
-  hashSurface: {
-    padding: 16,
-    borderRadius: 8,
-    backgroundColor: "#F8F9FA",
-  },
-  hashText: {
-    fontFamily: "monospace",
-    fontSize: 14,
-    color: "#333",
-    textAlign: "center",
-  },
+  // Transaction Hash
+  hashCard: { marginBottom: 20, backgroundColor: "#FFFFFF" },
+  hashTitle: { fontWeight: "600", marginBottom: 12, color: "#333" },
+  hashSurface: { padding: 16, borderRadius: 8, backgroundColor: "#F8F9FA" },
+  hashText: { fontFamily: "monospace", fontSize: 14, color: "#333", textAlign: "center" },
 
-  // Hash Signature - THIRD MOST IMPORTANT
-  signatureCard: {
-    marginBottom: 24,
-    backgroundColor: "#FFFFFF",
-  },
-  signatureTitle: {
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#333",
-  },
-  signatureSurface: {
-    padding: 16,
-    borderRadius: 8,
-    backgroundColor: "#F8F9FA",
-  },
-  signatureText: {
-    fontFamily: "monospace",
-    fontSize: 14,
-    color: "#333",
-    textAlign: "center",
-  },
+  // Signature
+  signatureCard: { marginBottom: 24, backgroundColor: "#FFFFFF" },
+  signatureTitle: { fontWeight: "600", marginBottom: 12, color: "#333" },
+  signatureSurface: { padding: 16, borderRadius: 8, backgroundColor: "#F8F9FA" },
+  signatureText: { fontFamily: "monospace", fontSize: 14, color: "#333", textAlign: "center" },
 
-  // Network Response Card
-  responseCard: {
-    marginBottom: 20,
-    backgroundColor: "#FFFFFF",
-  },
-  responseTitle: {
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#333",
-  },
-  responseSurface: {
-    padding: 16,
-    borderRadius: 8,
-    backgroundColor: "#F8F9FA",
-    maxHeight: 150,
-  },
-  responseScroll: {
-    maxHeight: 120,
-  },
-  responseText: {
-    fontFamily: "monospace",
-    fontSize: 12,
-    color: "#333",
-    lineHeight: 18,
-  },
+  // Network Response
+  responseCard: { marginBottom: 20, backgroundColor: "#FFFFFF" },
+  responseTitle: { fontWeight: "600", marginBottom: 12, color: "#333" },
+  responseSurface: { padding: 16, borderRadius: 8, backgroundColor: "#F8F9FA", maxHeight: 150 },
+  responseScroll: { maxHeight: 120 },
+  responseText: { fontFamily: "monospace", fontSize: 12, color: "#333", lineHeight: 18 },
 
-  // Primary Home Button - FOURTH MOST IMPORTANT
-  homeButton: {
-    marginBottom: 32,
-    backgroundColor: "#007AFF",
-  },
-  homeButtonContent: {
-    paddingVertical: 16,
-  },
-
-  // Additional Details - Less Important
-  detailsCard: {
-    marginBottom: 20,
-    backgroundColor: "#FFFFFF",
-  },
-  detailsTitle: {
-    fontWeight: "600",
-    marginBottom: 16,
-    color: "#333",
-  },
-  divider: {
-    marginBottom: 16,
-  },
+  // Buttons
+  homeButton: { marginBottom: 32, backgroundColor: "#007AFF" },
+  homeButtonContent: { paddingVertical: 16 },
+  detailsCard: { marginBottom: 20, backgroundColor: "#FFFFFF" },
+  detailsTitle: { fontWeight: "600", marginBottom: 16, color: "#333" },
+  divider: { marginBottom: 16 },
   detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-    paddingVertical: 4,
+    flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", marginBottom: 12, paddingVertical: 4,
   },
-  detailLabel: {
-    textTransform: "uppercase",
-    color: "#666",
-    flex: 1,
-  },
-  detailValue: {
-    fontWeight: "600",
-    color: "#333",
-    flex: 2,
-    textAlign: "right",
-  },
-  chainChip: {
-    backgroundColor: "#E3F2FD",
-  },
-  addressText: {
-    fontFamily: "monospace",
-    color: "#666",
-    flex: 2,
-    textAlign: "right",
-  },
-
-  // Secondary Button
-  secondaryButton: {
-    marginBottom: 16,
-  },
-  buttonContent: {
-    paddingVertical: 12,
-  },
+  detailLabel: { textTransform: "uppercase", color: "#666", flex: 1 },
+  detailValue: { fontWeight: "600", color: "#333", flex: 2, textAlign: "right" },
+  chainChip: { backgroundColor: "#E3F2FD" },
+  addressText: { fontFamily: "monospace", color: "#666", flex: 2, textAlign: "right" },
+  secondaryButton: { marginBottom: 16 },
+  buttonContent: { paddingVertical: 12 },
 });

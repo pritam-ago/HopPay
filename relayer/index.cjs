@@ -126,6 +126,12 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+// Log EVERY incoming request so we can see if the phone is reaching us
+app.use((req, _res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.path} from ${req.ip} | body keys: ${Object.keys(req.body || {}).join(', ') || 'none'}`);
+  next();
+});
+
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -147,6 +153,43 @@ app.get("/queue", (_req, res) => {
     error: item.error,
   }));
   res.json({ count: items.length, items });
+});
+
+// ─── Standalone SMS notification endpoint ─────────────────────────────────────
+// The app calls this AFTER a successful on-chain transaction to trigger
+// the merchant SMS — no need for the full relay flow.
+app.post("/send-sms", async (req, res) => {
+  try {
+    const { upiId, merchantPhone, amount, txHash, merchantName } = req.body;
+    console.log(`[SMS-ENDPOINT] Request: upiId=${upiId} phone=${merchantPhone} amount=${amount} txHash=${txHash}`);
+
+    // Determine phone number: from UPI ID, explicit phone, or .env fallback
+    const phoneFromUpi = extractPhoneFromUpi(upiId);
+    const phone = phoneFromUpi || merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "No phone number available" });
+    }
+
+    if (phoneFromUpi) {
+      console.log(`[SMS-ENDPOINT] 📲 Extracted phone from UPI: ${phoneFromUpi}`);
+    }
+
+    const amountNum = parseFloat(amount) || 0;
+    const shortRef = txHash ? `MeshT${txHash.slice(2, 8).toUpperCase()}` : `MeshT${Date.now().toString(36).toUpperCase()}`;
+
+    const smsResult = await sendCreditSms(phone, amountNum, shortRef, merchantName || "Merchant");
+    console.log(`[SMS-ENDPOINT] Result:`, smsResult);
+
+    return res.json({
+      success: smsResult.success,
+      phone,
+      smsResult,
+    });
+  } catch (err) {
+    console.error("[SMS-ENDPOINT] ❌ Error:", err?.message);
+    return res.status(500).json({ success: false, error: err?.message });
+  }
 });
 
 app.post("/relay", async (req, res) => {

@@ -102,6 +102,9 @@ export default function TransactionPage(): React.JSX.Element {
               txHash,
               timestamp,
               fullMessage: fullMessage || '',
+              upiId: upiId || '',
+              merchantName: merchantName || '',
+              merchantPhone: merchantPhone || '',
             },
           });
           return;
