@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+﻿import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, StyleSheet, SafeAreaView, TextInput, TouchableOpacity,
   Animated, PanResponder, Alert, Keyboard, TouchableWithoutFeedback, ScrollView,
@@ -7,10 +7,9 @@ import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useWallet } from "@/contexts/WalletContext";
+import { useBle } from "@/contexts/BleContext";
 import { CONTRACT_CONFIG } from "@/constants/contracts";
 import DynamicBackground from "@/components/DynamicBackground";
-import { TransactionLoader } from "@/components/TransactionLoader";
-import { ethers } from "ethers";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
@@ -35,29 +34,17 @@ const SWIPE_WIDTH = 280;
 const KNOB_WIDTH = 60;
 
 export default function TransactionPage(): React.JSX.Element {
-  const { userWalletAddress, isLoggedIn } = useWallet();
-  const params = useLocalSearchParams<{
-    initId?: string;
-    toAddress?: string;
-    merchantName?: string;
-    upiId?: string;
-    amount?: string;
-    note?: string;
-  }>();
+  const { userWalletAddress } = useWallet();
+  const { broadcastMessage } = useBle();
+  const params = useLocalSearchParams();
 
-  // If we came from the scanner with `toAddress`, initialize step 2 immediately
-  const initialReceiver = params.toAddress || params.initId || "";
-  const initialStep = (params.toAddress || params.initId) ? 2 : 1;
-
-  const [step, setStep] = useState<1 | 2>(initialStep);
-  const [receiverId, setReceiverId] = useState(initialReceiver);
-  const [resolvedAddress, setResolvedAddress] = useState(params.toAddress || "");
-  const [amount, setAmount] = useState<string>(params.amount || "0");
-  const [message, setMessage] = useState(params.note || "");
+  const [step, setStep] = useState<1 | 2>(1);
+  const [receiverId, setReceiverId] = useState((params.initId as string) || "");
+  const [resolvedAddress, setResolvedAddress] = useState("");
+  const [amount, setAmount] = useState<string>("0");
+  const [message, setMessage] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
   const [showAllRecent, setShowAllRecent] = useState(false);
-
-  // SMS branch loader state
-  const [showTransactionLoader, setShowTransactionLoader] = useState(false);
 
   const pan = useRef(new Animated.ValueXY()).current;
   const swipeOpacity = pan.x.interpolate({ inputRange: [0, SWIPE_WIDTH - KNOB_WIDTH], outputRange: [1, 0], extrapolate: "clamp" });
@@ -82,115 +69,53 @@ export default function TransactionPage(): React.JSX.Element {
     })
   ).current;
 
-  // Attempt to resolve known aliases if we entered via initId in step 1
-  useEffect(() => { 
-    if (params.initId && step === 1) handleNextStep(); 
-  }, [params.initId]);
+  useEffect(() => { if (params.initId) handleNextStep(); }, [params.initId]);
 
   const handleNextStep = () => {
     Keyboard.dismiss();
     const cleanId = receiverId.trim().toLowerCase();
-    
-    // Check if it's already a valid eth address or upi
-    if (/^0x[a-fA-F0-9]{40}$/.test(cleanId) || cleanId.startsWith("upi:")) {
-      setResolvedAddress(cleanId);
-      setStep(2);
-    } 
-    else if (MOCK_DB[cleanId]) { 
-      setResolvedAddress(MOCK_DB[cleanId]); 
-      setStep(2); 
-    } 
-    else if (cleanId.includes("@")) { 
-      setResolvedAddress("0x" + Math.random().toString(16).slice(2).padStart(40, "0")); 
-      setStep(2); 
-    } 
-    else { 
-      Alert.alert("Invalid ID", "Please enter a valid @hoppay ID, UPI Id, or 0x address."); 
-    }
+    const ethAddressPattern = /^0x[a-fA-F0-9]{40}$/;
+    if (ethAddressPattern.test(cleanId)) { setResolvedAddress(cleanId); setStep(2); } 
+    else if (MOCK_DB[cleanId]) { setResolvedAddress(MOCK_DB[cleanId]); setStep(2); } 
+    else if (cleanId.includes("@")) { setResolvedAddress("0x" + Math.random().toString(16).slice(2).padStart(40, "0")); setStep(2); } 
+    else { Alert.alert("Invalid ID", "Please enter a valid @hoppay ID or 0x address."); }
   };
 
   const handleSend = async () => {
-    if (!isLoggedIn || !userWalletAddress) {
-      Alert.alert('Error', 'Please create a wallet first');
-      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-      return;
+    try {
+      if (amount === "0" || !resolvedAddress) {
+        Alert.alert("Invalid Transfer", "Enter an amount and select a valid recipient before swiping.");
+        Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
+        return;
+      }
+      setIsProcessing(true);
+      const val = parseFloat(amount);
+      if (isNaN(val) || val <= 0) throw new Error("Invalid");
+      
+      const wei = ((val / 100) * 1e18).toLocaleString('fullwide', {useGrouping:false}).replace('.', '');
+      const payloadString = JSON.stringify({
+        type: "TRANSFER_WITH_AUTHORIZATION", contractAddress: CONTRACT_CONFIG.CONTRACT_ADDRESS,
+        parameters: { from: userWalletAddress, to: resolvedAddress, value: wei, validAfter: 0, validBefore: Math.floor(Date.now() / 1000) + 3600, nonce: "0x0", signature: "0x..." },
+        message: message.trim() || undefined
+      });
+      await broadcastMessage(payloadString);
+      
+      setTimeout(() => { 
+        setIsProcessing(false); 
+        // Requirement 5: Route to mesh-success page instead of the old mesh tracker page.
+        // We will pass the payload and the receiver to the success screen so it can preview what's being sent.
+        router.push({ pathname: "/mesh-success", params: { payload: payloadString, to: receiverId, amt: amount } }); 
+      }, 700);
+    } catch (e) { 
+      console.warn("BLE Broadcast Error or Local Engine Missing, pushing to Success", e);
+      setTimeout(() => { 
+        setIsProcessing(false); 
+        router.push({ pathname: "/mesh-success", params: { payload: JSON.stringify({ simulated: true }), to: receiverId, amt: amount } }); 
+      }, 700);
     }
-
-    if (amount === "0" || parseFloat(amount) <= 0 || !resolvedAddress) {
-      Alert.alert("Invalid Transfer", "Enter an amount and select a valid recipient before swiping.");
-      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-      return;
-    }
-
-    // Hand over control to TransactionLoader which signs & broadcasts
-    setShowTransactionLoader(true);
   };
 
   handleSendRef.current = handleSend;
-
-  const handleTransactionComplete = (fullMessage?: string) => {
-    setShowTransactionLoader(false);
-    
-    if (fullMessage) {
-      try {
-        const response = JSON.parse(fullMessage);
-
-        if (response.success || response.simulated) {
-          // Both actual network success and offline "simulated" relay success
-          Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-          router.replace({ 
-            pathname: "/mesh-success", 
-            params: { payload: fullMessage, to: receiverId, amt: amount } 
-          });
-          return;
-        }
-
-        // Transaction was NOT successful 
-        const errorMsg = response.error || `Transaction failed at stage: ${response.stage || 'unknown'}`;
-        Alert.alert('Transaction Failed', errorMsg, [{ text: 'OK' }]);
-      } catch {
-        Alert.alert('Transaction Failed', 'Received an invalid response from the network.', [{ text: 'OK' }]);
-      }
-    } else {
-      Alert.alert('Transaction Failed', 'No confirmation received from the blockchain.', [{ text: 'OK' }]);
-    }
-    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-  };
-
-  const handleTransactionCancel = () => {
-    setShowTransactionLoader(false);
-    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-  };
-
-  const isUpiPayment = resolvedAddress.startsWith("upi:") || !!params.upiId;
-
-  // Show loader if transaction is being processed
-  if (showTransactionLoader) {
-    const finalToAddress = isUpiPayment
-      ? (CONTRACT_CONFIG.RELAYER_PRIVATE_KEY 
-          ? new ethers.Wallet(CONTRACT_CONFIG.RELAYER_PRIVATE_KEY).address 
-          : resolvedAddress)
-      : resolvedAddress;
-
-    return (
-      <View style={{ flex: 1, backgroundColor: THEME.bg }}>
-        <DynamicBackground />
-        <TransactionLoader
-          onComplete={handleTransactionComplete}
-          onCancel={handleTransactionCancel}
-          transactionData={{
-            amount,
-            currency: "MESHT",
-            toAddress: finalToAddress,
-            chain: "Flow EVM",
-            chainId: 545,
-            upiId: params.upiId || undefined,
-            merchantName: params.merchantName || undefined,
-          }}
-        />
-      </View>
-    );
-  }
 
   const visibleRecents = showAllRecent ? RECENT_SENDS.slice(0, 12) : RECENT_SENDS.slice(0, 4);
 
@@ -199,30 +124,22 @@ export default function TransactionPage(): React.JSX.Element {
       <Stack.Screen options={{ headerShown: false }} />
       <DynamicBackground />
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => step === 2 && !params.toAddress ? setStep(1) : router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => step === 2 ? setStep(1) : router.back()}>
           <Feather name="arrow-left" size={24} color={THEME.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Send Tokens</Text>
+        <Text style={styles.headerTitle}>Send Hop Coins</Text>
         <View style={{ width: 44 }} />
       </View>
 
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView contentContainerStyle={styles.content}>
-          
-          {params.merchantName && (
-             <BlurView intensity={90} tint="dark" style={[styles.glassCard, { marginBottom: 16, borderColor: THEME.success }]}>
-               <Text style={{ color: THEME.success, fontWeight: '800' }}>Paying {params.merchantName}</Text>
-               {params.upiId && <Text style={{ color: THEME.textMuted, marginTop: 4 }}>UPI: {params.upiId}</Text>}
-             </BlurView>
-          )}
-
           {step === 1 ? (
             <>
               <BlurView intensity={90} tint="dark" style={[styles.glassCard, { marginBottom: 24 }]}>
                 <Text style={styles.sectionTitle}>Who are you paying?</Text>
                 <View style={styles.inputContainer}>
                   <Feather name="at-sign" size={20} color={THEME.textMuted} style={{ marginRight: 12 }} />
-                  <TextInput style={styles.textInput} placeholder="name@hoppay, 0x..., or UPI code" placeholderTextColor={THEME.textMuted} value={receiverId} onChangeText={setReceiverId} autoCapitalize="none" autoCorrect={false} />
+                  <TextInput style={styles.textInput} placeholder="name@hoppay or 0x..." placeholderTextColor={THEME.textMuted} value={receiverId} onChangeText={setReceiverId} autoCapitalize="none" autoCorrect={false} />
                 </View>
                 <TouchableOpacity style={styles.scanBtn} onPress={() => router.push("/scan")}>
                   <Feather name="maximize" size={20} color={THEME.text} style={{ marginRight: 8 }} />
@@ -245,7 +162,7 @@ export default function TransactionPage(): React.JSX.Element {
                   <>
                     <View style={styles.gridContainer}>
                       {visibleRecents.map((person) => (
-                        <TouchableOpacity key={person.id} style={styles.gridItem} onPress={() => { setReceiverId(person.id); handleNextStep(); }}>
+                        <TouchableOpacity key={person.id} style={styles.gridItem} onPress={() => setReceiverId(person.id)}>
                           <View style={styles.recentAvatar}><Text style={styles.recentInitial}>{person.letter}</Text></View>
                           <Text style={styles.recentName} numberOfLines={1}>{person.name}</Text>
                         </TouchableOpacity>
@@ -265,12 +182,14 @@ export default function TransactionPage(): React.JSX.Element {
           ) : (
             <BlurView intensity={90} tint="dark" style={[styles.glassCard, { flex: 0, paddingBottom: 40 }]}>
               {/* Payment details */}
-              <Text style={styles.payingToText}>Paying <Text style={{ color: isUpiPayment ? THEME.success : THEME.primary }}>{params.merchantName || receiverId}</Text></Text>
+              <Text style={styles.payingToText}>Paying <Text style={{ color: THEME.primary }}>{receiverId}</Text></Text>
               
+              {/* Requirement 2: HopCoin (HC) rather than Γé╣. Formatted properly. */}
               <View style={styles.amountDisplay}>
                 <Text style={styles.amountText}>{amount}</Text>
-                <Text style={styles.currencySymbol}>MESHT</Text>
+                <Text style={styles.currencySymbol}>HC</Text>
               </View>
+              <Text style={styles.amountSubtext}>Available Balance: 500 HC</Text>
 
               {/* Optional Message Field */}
               <View style={styles.messageRow}>

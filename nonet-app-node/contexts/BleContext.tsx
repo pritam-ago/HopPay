@@ -378,6 +378,8 @@ export const submitTransactionToBlockchain = async (
 };
 
 interface BleContextType {
+  isRelayEnabled: boolean;
+  setIsRelayEnabled: (val: boolean) => void;
   // State
   isBroadcasting: boolean;
   hasInternet: boolean;
@@ -410,6 +412,7 @@ interface BleProviderProps {
 
 export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
   const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [isRelayEnabled, setIsRelayEnabled] = useState(true);
   const [, forceRerender] = useState(0);
 
   // Use NetInfo to get real network connectivity status
@@ -551,6 +554,10 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
       console.log(`🚀 [MESH] This device has internet - submitting to blockchain...`);
       handleApiResponse(id, fullMessage);
     } else if (!hasInternet) {
+      if (!isRelayEnabled) {
+        console.log(`📡 [MESH] Relay mode is OFF - ignoring relay request`);
+        return;
+      }
       console.log(`📡 [MESH] This device has no internet - re-broadcasting chunks...`);
       const orderedChunks: Uint8Array[] = [];
       for (let i = 1; i <= entry.totalChunks; i++) {
@@ -872,6 +879,8 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
   }, []);
 
   const contextValue: BleContextType = {
+    isRelayEnabled,
+    setIsRelayEnabled,
     // State
     isBroadcasting,
     hasInternet,

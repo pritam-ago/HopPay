@@ -1,209 +1,232 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, SafeAreaView, Alert } from "react-native";
 import {
+  View,
   Text,
-  Button,
-  Card,
-  Surface,
+  StyleSheet,
+  SafeAreaView,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
   ActivityIndicator,
-  useTheme,
-} from "react-native-paper";
+} from "react-native";
+import { BlurView } from "expo-blur";
 import { router } from "expo-router";
+import { useWallet } from "@/contexts/WalletContext";
 import { useCameraPermissions } from "expo-camera";
-import { useWallet, WalletData } from "@/contexts/WalletContext";
-import {
-  NeoBrutalButton,
-  NeoBrutalCard,
-  NeoBrutalHeader,
-  NeoBrutalBadge,
-  NeoBrutalDivider,
-} from "@/components/NeoBrutalismComponents";
-import { NeoBrutalismColors } from "@/constants/neoBrutalism";
 import { requestBluetoothPermissions } from "@/utils/permissions";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const THEME = {
+  bg: "#0F172A",
+  glassBg: "rgba(255, 255, 255, 0.05)",
+  glassBorder: "rgba(255, 255, 255, 0.1)",
+  primary: "#3B82F6",
+  secondary: "#8B5CF6",
+  success: "#10B981",
+  text: "#F8FAFC",
+  textMuted: "#94A3B8",
+};
+
+const generateMockSeedPhrase = () => {
+  const words = ["abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid"];
+  const seed = [];
+  for (let i = 0; i < 12; i++) seed.push(words[Math.floor(Math.random() * words.length)]);
+  return seed.join(" ");
+};
 
 export default function WelcomePage(): React.JSX.Element {
   const { isLoggedIn, createWallet } = useWallet();
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [isCreatingWallet, setIsCreatingWallet] = useState(false);
-  const theme = useTheme();
+  const [, requestCameraPermission] = useCameraPermissions();
+
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
+  const [gender, setGender] = useState("");
+  const [realUpiId, setRealUpiId] = useState("");
+  const [hopHandle, setHopHandle] = useState("");
+  const [seedPhrase, setSeedPhrase] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
-    // Check if user already has a wallet and redirect to tabs
-    if (isLoggedIn) {
-      router.replace("/(tabs)");
-    }
+    if (isLoggedIn) router.replace("/(tabs)");
   }, [isLoggedIn]);
 
-  // Callback function that gets triggered after wallet is successfully created
-  const onWalletCreated = async (walletData: WalletData): Promise<void> => {
-    try {
-      console.log(
-        "🚀 Wallet creation callback triggered for address:",
-        walletData.address
-      );
-
-      // TODO: Callback for wallet creation
-    } catch (error) {
-      console.error("❌ Error in wallet creation callback:", error);
-      // Don't throw - let wallet creation succeed even if API calls fail
-    }
+  const handlePhoneSubmit = () => {
+    if (phone.length < 10) return Alert.alert("Invalid", "Please enter a valid phone number.");
+    setStep(2);
   };
 
-  const handleCreateWallet = async () => {
+  const handleOtpSubmit = () => {
+    if (otp !== "1234") return Alert.alert("Simulated OTP", "Please enter 1234 for the simulation.");
+    setStep(3);
+  };
+
+  const handlePersonalInfoSubmit = () => {
+    if (name.length < 2 || dob.length < 4 || gender.length < 3) {
+      return Alert.alert("Invalid", "Please fill out all personal fields.");
+    }
+    setStep(4);
+  };
+
+  const handleUpiSubmit = async () => {
+    if (!realUpiId.includes("@") || hopHandle.length < 3) {
+      return Alert.alert("Invalid", "Please enter a real UPI ID and a valid @hoppay handle.");
+    }
+
+    await AsyncStorage.setItem("@user_profile", JSON.stringify({
+      realUpiId,
+      hopHandle: `${hopHandle}@hoppay`,
+      name,
+      dob,
+      gender,
+      phoneNumber: phone
+    }));
+
+    setSeedPhrase(generateMockSeedPhrase());
+    setStep(5);
+  };
+
+  const finalizeWallet = async () => {
     try {
-      setIsCreatingWallet(true);
-
-      console.log("🔐 Starting wallet creation with permission requests...");
-
-      // 1. Request Camera Permission - Native dialog with timeout
-      console.log("📷 Requesting camera permission...");
-      try {
-        const cameraResult = await Promise.race([
-          requestCameraPermission(),
-          new Promise<any>((_, reject) =>
-            setTimeout(
-              () => reject(new Error("Camera permission timeout")),
-              10000
-            )
-          ),
-        ]);
-        console.log("Camera permission result:", cameraResult.status);
-      } catch (cameraError) {
-        console.warn(
-          "⚠️ Camera permission error (continuing anyway):",
-          cameraError
-        );
-      }
-
-      // 2. Request Bluetooth Permissions - Native dialogs with timeout
-      console.log("📶 Requesting Bluetooth permissions...");
-      try {
-        const bluetoothGranted = await Promise.race([
-          requestBluetoothPermissions(),
-          new Promise<boolean>((_, reject) =>
-            setTimeout(
-              () => reject(new Error("Bluetooth permission timeout")),
-              10000
-            )
-          ),
-        ]);
-        console.log("Bluetooth permission result:", bluetoothGranted);
-      } catch (bluetoothError) {
-        console.warn(
-          "⚠️ Bluetooth permission error (continuing anyway):",
-          bluetoothError
-        );
-      }
-
-      // Create wallet regardless of permission results
-      // App will work with limited functionality if permissions denied
-      console.log("🔐 Creating wallet...");
-      await createWallet(onWalletCreated);
-
-      console.log("✅ Wallet created, navigating to app...");
-      // Navigate to main app
-      router.replace("/(tabs)");
-    } catch (error) {
-      console.error("❌ Error creating wallet:", error);
-      Alert.alert("Error", "Failed to create wallet. Please try again.", [
-        { text: "OK" },
-      ]);
+      setIsCreating(true);
+      await requestCameraPermission();
+      await requestBluetoothPermissions();
+      await createWallet();
+    } catch (e) {
+      Alert.alert("Error", "Failed to construct wallet. Try again.");
     } finally {
-      setIsCreatingWallet(false);
+      setIsCreating(false);
     }
   };
+
+  const renderStep1 = () => (
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Welcome to Hop Pay</Text>
+      <Text style={styles.subtitle}>Enter your phone number to get started.</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Phone Number (e.g. 9876543210)"
+        placeholderTextColor={THEME.textMuted}
+        keyboardType="phone-pad"
+        value={phone}
+        onChangeText={setPhone}
+      />
+      <TouchableOpacity style={styles.primaryButton} onPress={handlePhoneSubmit}>
+        <Text style={styles.primaryButtonText}>Send OTP</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderStep2 = () => (
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Verify OTP</Text>
+      <Text style={styles.subtitle}>Enter 1234 for this simulation.</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="4-digit OTP"
+        placeholderTextColor={THEME.textMuted}
+        keyboardType="number-pad"
+        maxLength={4}
+        value={otp}
+        onChangeText={setOtp}
+        secureTextEntry
+      />
+      <TouchableOpacity style={styles.primaryButton} onPress={handleOtpSubmit}>
+        <Text style={styles.primaryButtonText}>Verify & Continue</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderStep3 = () => (
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>About You</Text>
+      <Text style={styles.subtitle}>Help us identify you on the mesh network.</Text>
+
+      <Text style={styles.label}>Full Name</Text>
+      <TextInput style={styles.input} placeholder="e.g. Ravi Kumar" placeholderTextColor={THEME.textMuted} value={name} onChangeText={setName} />
+
+      <Text style={styles.label}>Date of Birth</Text>
+      <TextInput style={styles.input} placeholder="DD/MM/YYYY" placeholderTextColor={THEME.textMuted} value={dob} onChangeText={setDob} keyboardType="numbers-and-punctuation" />
+
+      <Text style={styles.label}>Gender</Text>
+      <TextInput style={styles.input} placeholder="e.g. Male / Female" placeholderTextColor={THEME.textMuted} value={gender} onChangeText={setGender} />
+
+      <TouchableOpacity style={styles.primaryButton} onPress={handlePersonalInfoSubmit}>
+        <Text style={styles.primaryButtonText}>Continue</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderStep4 = () => (
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Link Your Bank</Text>
+      <Text style={styles.subtitle}>Decentro uses this to settle funds directly to your bank account.</Text>
+
+      <Text style={styles.label}>Real Bank UPI ID (Destination)</Text>
+      <TextInput style={styles.input} placeholder="e.g. name@icici" placeholderTextColor={THEME.textMuted} autoCapitalize="none" value={realUpiId} onChangeText={setRealUpiId} />
+
+      <Text style={styles.label}>Choose a Hop Pay Handle</Text>
+      <View style={styles.handleInputContainer}>
+        <TextInput style={[styles.input, { flex: 1, marginBottom: 0, borderRightWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 }]} placeholder="yourname" placeholderTextColor={THEME.textMuted} autoCapitalize="none" value={hopHandle} onChangeText={setHopHandle} />
+        <View style={styles.handleSuffix}><Text style={styles.handleSuffixText}>@hoppay</Text></View>
+      </View>
+
+      <TouchableOpacity style={styles.primaryButton} onPress={handleUpiSubmit}>
+        <Text style={styles.primaryButtonText}>Link & Secure</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderStep5 = () => (
+    <View style={styles.formContainer}>
+      <Text style={styles.title}>Secure Your Wallet</Text>
+      <Text style={styles.subtitle}>Write down this 12-word seed phrase to recover your funds offline.</Text>
+      <View style={styles.seedBox}>
+        <Text style={styles.seedText}>{seedPhrase}</Text>
+      </View>
+      <TouchableOpacity style={[styles.primaryButton, isCreating && { opacity: 0.7 }]} onPress={finalizeWallet} disabled={isCreating}>
+        {isCreating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>I've Saved It - Generate Wallet</Text>}
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
-      <View style={styles.content}>
-        {/* Logo Section */}
-        <View style={styles.logoSection}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logoIcon}>🌐</Text>
-          </View>
-          <Text style={styles.appName}>NoNet</Text>
-        </View>
-
-        {/* Create Wallet Button */}
-        <View style={styles.buttonSection}>
-          <NeoBrutalButton
-            title={isCreatingWallet ? "Creating Wallet..." : "Create Wallet"}
-            onPress={handleCreateWallet}
-            variant="primary"
-            size="large"
-            disabled={isCreatingWallet}
-            style={styles.createButton}
-          />
-
-          {isCreatingWallet && (
-            <View style={styles.loadingIndicator}>
-              <ActivityIndicator
-                size="small"
-                color={NeoBrutalismColors.primary}
-              />
-            </View>
-          )}
-        </View>
-      </View>
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
+        <View style={styles.blob1} />
+        <View style={styles.blob2} />
+        <BlurView intensity={30} tint="dark" style={styles.glassCard}>
+          {step === 1 && renderStep1()}
+          {step === 2 && renderStep2()}
+          {step === 3 && renderStep3()}
+          {step === 4 && renderStep4()}
+          {step === 5 && renderStep5()}
+        </BlurView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-
-  // Logo Section
-  logoSection: {
-    alignItems: "center",
-    marginBottom: 80,
-  },
-  logoContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: NeoBrutalismColors.surfaceAlt,
-    borderWidth: 4,
-    borderColor: NeoBrutalismColors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 32,
-    shadowColor: NeoBrutalismColors.primary,
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 0,
-    elevation: 8,
-  },
-  logoIcon: {
-    fontSize: 60,
-  },
-  appName: {
-    fontSize: 48,
-    fontWeight: "900",
-    color: NeoBrutalismColors.textPrimary,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-
-  // Button Section
-  buttonSection: {
-    alignItems: "center",
-    width: "100%",
-  },
-  createButton: {
-    minWidth: 280,
-    marginBottom: 16,
-  },
-  loadingIndicator: {
-    marginTop: 16,
-  },
+  container: { flex: 1, backgroundColor: "transparent" },
+  keyboardView: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  blob1: { position: "absolute", top: "10%", left: "-20%", width: 300, height: 300, borderRadius: 150, backgroundColor: THEME.primary, opacity: 0.3, transform: [{ scale: 1.5 }] },
+  blob2: { position: "absolute", bottom: "10%", right: "-20%", width: 300, height: 300, borderRadius: 150, backgroundColor: THEME.secondary, opacity: 0.3, transform: [{ scale: 1.5 }] },
+  glassCard: { width: "100%", borderRadius: 24, padding: 24, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden" },
+  formContainer: { width: "100%" },
+  title: { fontSize: 28, fontWeight: "800", color: THEME.text, marginBottom: 8 },
+  subtitle: { fontSize: 14, color: THEME.textMuted, marginBottom: 24, lineHeight: 20 },
+  label: { fontSize: 12, fontWeight: "700", color: THEME.textMuted, textTransform: "uppercase", marginBottom: 8, letterSpacing: 1 },
+  input: { backgroundColor: "rgba(0,0,0,0.3)", borderColor: THEME.glassBorder, borderWidth: 1, borderRadius: 12, padding: 16, color: THEME.text, fontSize: 16, marginBottom: 16 },
+  handleInputContainer: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  handleSuffix: { backgroundColor: "rgba(0,0,0,0.5)", borderColor: THEME.glassBorder, borderWidth: 1, borderLeftWidth: 0, borderTopRightRadius: 12, borderBottomRightRadius: 12, padding: 16, justifyContent: "center", height: 56 },
+  handleSuffixText: { color: THEME.primary, fontWeight: "800" },
+  seedBox: { backgroundColor: "rgba(0,0,0,0.5)", borderColor: THEME.glassBorder, borderWidth: 1, borderRadius: 12, padding: 20, marginBottom: 24 },
+  seedText: { color: "#fff", fontSize: 18, lineHeight: 28, textAlign: "center", fontFamily: Platform.OS === "ios" ? "Courier" : "monospace", letterSpacing: 1 },
+  primaryButton: { backgroundColor: THEME.primary, borderRadius: 12, padding: 16, alignItems: "center", marginTop: 8 },
+  primaryButtonText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.5 },
 });

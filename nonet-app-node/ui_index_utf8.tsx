@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, RefreshControl, TextInput, ActivityIndicator } from "react-native";
+﻿import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, RefreshControl, TextInput } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -8,8 +8,6 @@ import { useBle } from "@/contexts/BleContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import DynamicBackground from "@/components/DynamicBackground";
-import { CONTRACT_CONFIG } from "@/constants/contracts";
-import { ethers } from "ethers";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
@@ -28,10 +26,17 @@ const MOCK_PEOPLE = [
   { id: "bob@hoppay", name: "Bob", letter: "B", color: "#8B5CF6" },
   { id: "merchant@icici", name: "Merchant", letter: "M", color: "#10B981" },
   { id: "david@hoppay", name: "David", letter: "D", color: "#F59E0B" },
+  { id: "emma@hoppay", name: "Emma", letter: "E", color: "#EC4899" },
+  { id: "frank@hoppay", name: "Frank", letter: "F", color: "#A855F7" },
+  { id: "grace@hoppay", name: "Grace", letter: "G", color: "#F43F5E" },
+  { id: "hannah@hoppay", name: "Hannah", letter: "H", color: "#14B8A6" },
+  { id: "ian@hoppay", name: "Ian", letter: "I", color: "#EAB308" },
+  { id: "jack@hoppay", name: "Jack", letter: "J", color: "#6366F1" },
+  { id: "karen@hoppay", name: "Karen", letter: "K", color: "#84CC16" },
 ];
 
 export default function HomeDashboard(): React.JSX.Element {
-  const { userWalletAddress, isLoggedIn } = useWallet();
+  const { userWalletAddress } = useWallet();
   const bleContext = useBle() as any;
   const isRelayEnabled = bleContext.isRelayEnabled ?? true;
   const setIsRelayEnabled = bleContext.setIsRelayEnabled;
@@ -40,43 +45,9 @@ export default function HomeDashboard(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isBalanceVisible, setIsBalanceVisible] = useState(false);
-  const [tokenBalance, setTokenBalance] = useState<string | null>(null);
-  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [showAllPeople, setShowAllPeople] = useState(false);
 
-  // Fetch MeshT token balance from the contract (Integrated from SMS branch)
-  const fetchTokenBalance = useCallback(async () => {
-    if (!userWalletAddress) {
-      setTokenBalance(null);
-      return;
-    }
-
-    setIsLoadingBalance(true);
-    try {
-      const provider = new ethers.JsonRpcProvider(CONTRACT_CONFIG.RPC_URL);
-      const balanceAbi = ["function balanceOf(address owner) view returns (uint256)"];
-      const contract = new ethers.Contract(
-        CONTRACT_CONFIG.CONTRACT_ADDRESS,
-        balanceAbi,
-        provider
-      );
-      const balance = await contract.balanceOf(userWalletAddress) as bigint;
-      const formatted = ethers.formatUnits(balance, 18);
-      const display = parseFloat(formatted).toFixed(4).replace(/\.?0+$/, '');
-      setTokenBalance(display);
-    } catch (error) {
-      console.error("Failed to fetch token balance:", error);
-      setTokenBalance("—");
-    } finally {
-      setIsLoadingBalance(false);
-    }
-  }, [userWalletAddress]);
-
-  useEffect(() => { 
-    loadProfile(); 
-    fetchTokenBalance();
-    const interval = setInterval(fetchTokenBalance, 30000);
-    return () => clearInterval(interval);
-  }, [fetchTokenBalance]);
+  useEffect(() => { loadProfile(); }, []);
 
   const loadProfile = async () => {
     try {
@@ -88,8 +59,8 @@ export default function HomeDashboard(): React.JSX.Element {
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
-    fetchTokenBalance().then(() => setRefreshing(false));
-  }, [fetchTokenBalance]);
+    setTimeout(() => setRefreshing(false), 1500);
+  }, []);
 
   const handleAction = (route: string) => {
     if(route === "mesh") router.push("/(tabs)/mesh");
@@ -130,20 +101,20 @@ export default function HomeDashboard(): React.JSX.Element {
           </View>
           
           <View style={{ flexDirection: "row", alignItems: "baseline", marginBottom: 3 }}>
-            {!isLoggedIn ? (
-              <Text style={styles.balanceAmount}>---</Text>
-            ) : isLoadingBalance && tokenBalance === null ? (
-              <ActivityIndicator size="small" color={THEME.primary} />
-            ) : (
-              <Text style={styles.balanceAmount}>{isBalanceVisible ? tokenBalance ?? "0" : "***"}</Text>
-            )}
-            {isBalanceVisible && <Text style={styles.hcSymbol}> MESHT</Text>}
+            <Text style={styles.balanceAmount}>{isBalanceVisible ? "500" : "***"}</Text>
+            {isBalanceVisible && <Text style={styles.hcSymbol}> HC</Text>}
           </View>
 
           <TouchableOpacity style={styles.walletIdRow} onPress={() => Clipboard.setStringAsync(profile?.hopHandle || "user@hoppay")}>
             <Text style={styles.walletIdText} numberOfLines={1}>{profile?.hopHandle || "user@hoppay"}</Text>
             <Feather name="copy" size={14} color={THEME.textMuted} />
           </TouchableOpacity>
+        </BlurView>
+
+        {/* Current Exchange Rate Indicator */}
+        <BlurView intensity={50} tint="dark" style={styles.rateCard}>
+          <Feather name="trending-up" size={16} color={THEME.success} style={{ marginRight: 8 }}/>
+          <Text style={styles.rateText}>Current Rate: <Text style={{ color: "#FFF", fontWeight: "800" }}>1 HC = Γé╣10</Text></Text>
         </BlurView>
 
         <View style={styles.actionsContainer}>
@@ -155,10 +126,12 @@ export default function HomeDashboard(): React.JSX.Element {
 
         <View style={styles.transactionsHeader}>
           <Text style={styles.sectionTitle}>People</Text>
-          <TouchableOpacity><Text style={styles.seeAll}>See All</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowAllPeople(!showAllPeople)}>
+            <Text style={styles.seeAll}>{showAllPeople ? "Show Less" : "See All"}</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.gridContainer}>
-          {MOCK_PEOPLE.map((person) => (
+          {(showAllPeople ? MOCK_PEOPLE : MOCK_PEOPLE.slice(0, 4)).map((person) => (
             <TouchableOpacity key={person.id} style={styles.gridItem} onPress={() => router.push({ pathname: "/transaction", params: { initId: person.id } })}>
               <View style={[styles.personAvatar, { backgroundColor: person.color }]}><Text style={styles.personInitial}>{person.letter}</Text></View>
               <Text style={styles.personName}>{person.name}</Text>
@@ -176,7 +149,7 @@ export default function HomeDashboard(): React.JSX.Element {
               <View style={[styles.txIconBox, { backgroundColor: tx.type === 'send' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)' }]}><Feather name={tx.type === 'send' ? "arrow-up-right" : "arrow-down-left"} size={20} color={tx.type === 'send' ? THEME.danger : THEME.success} /></View>
               <View style={styles.txInfo}><Text style={styles.txName}>{tx.name}</Text><Text style={styles.txDate}>{tx.date}</Text></View>
               <View style={styles.txRight}>
-                <Text style={styles.txAmount}>{tx.type === 'send' ? "-" : "+"} {isBalanceVisible ? `${tx.amount} MESHT` : "***"}</Text>
+                <Text style={styles.txAmount}>{tx.type === 'send' ? "-" : "+"} {isBalanceVisible ? `${tx.amount} HC` : "***"}</Text>
                 <Text style={[styles.txStatus, { color: tx.status === 'Settled' ? THEME.success : "#F59E0B" }]}>{tx.status}</Text>
               </View>
             </BlurView>
@@ -199,13 +172,15 @@ const styles = StyleSheet.create({
   searchContainer: { flexDirection: "row", alignItems: "center", backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, height: 52, marginBottom: 24, overflow: "hidden" },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1, color: THEME.text, fontSize: 15 },
-  balanceCard: { borderRadius: 24, padding: 24, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden", alignItems: "center", marginBottom: 16 },
+  balanceCard: { borderRadius: 24, padding: 24, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden", alignItems: "center", marginBottom: 12 },
   balanceHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginBottom: 8 },
   balanceLabel: { fontSize: 14, color: THEME.textMuted, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginRight: 8 },
   balanceAmount: { fontSize: 56, fontWeight: "900", color: THEME.text, letterSpacing: -1, lineHeight: 60 },
-  hcSymbol: { fontSize: 24, color: THEME.textMuted, fontWeight: "bold" },
+  hcSymbol: { fontSize: 28, color: THEME.textMuted, fontWeight: "bold" },
   walletIdRow: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)", borderColor: THEME.glassBorder, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 16, marginTop: 16 },
   walletIdText: { color: THEME.text, fontSize: 14, fontFamily: "monospace", fontWeight: "600", marginRight: 8 },
+  rateCard: { flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "center", backgroundColor: "rgba(16, 185, 129, 0.1)", borderWidth: 1, borderColor: "rgba(16, 185, 129, 0.3)", borderRadius: 12, paddingVertical: 6, paddingHorizontal: 16, marginBottom: 32 },
+  rateText: { color: THEME.success, fontWeight: "600", fontSize: 13 },
   actionsContainer: { flexDirection: "row", justifyContent: "space-between", marginBottom: 32 },
   actionItem: { alignItems: "center", flex: 1 },
   actionButton: { width: 60, height: 60, borderRadius: 30, justifyContent: "center", alignItems: "center", marginBottom: 8, borderWidth: 1, borderColor: THEME.glassBorder, overflow: "hidden" },

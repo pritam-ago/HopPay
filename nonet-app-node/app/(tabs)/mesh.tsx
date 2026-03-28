@@ -1,427 +1,120 @@
-import React, { useState } from 'react';
-import { Alert, View, StyleSheet, ScrollView } from 'react-native';
-import {
-  Provider as PaperProvider,
-  DefaultTheme,
-  Text,
-  TextInput,
-  Button,
-  Card,
-  Title,
-  Paragraph,
-  Badge,
-  Surface,
-  ProgressBar,
-  Icon,
-  IconButton,
-} from 'react-native-paper';
-import { useBle } from '@/contexts/BleContext';
-import { MessageState } from '@/utils/bleUtils';
+import React from "react";
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView } from "react-native";
+import { BlurView } from "expo-blur";
+import { Feather } from "@expo/vector-icons";
+import { useBle } from "@/contexts/BleContext";
+import DynamicBackground from "@/components/DynamicBackground";
 
-// --- Theme ---
-const theme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: '#2196F3',
-    accent: '#FF5722',
-  },
+const THEME = {
+  bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
+  primary: "#3B82F6", success: "#10B981", danger: "#EF4444", text: "#F8FAFC", textMuted: "#94A3B8"
 };
 
-const MeshScreen = () => {
-  const [message, setMessage] = useState('');
+export default function PacketAdminScreen(): React.JSX.Element {
+  const bleContext = useBle() as any;
+  const isRelayEnabled = bleContext.isRelayEnabled ?? true;
+  const setIsRelayEnabled = bleContext.setIsRelayEnabled;
+  const masterState = bleContext.masterState;
 
-  // Use the global BLE context
-  const {
-    isBroadcasting,
-    hasInternet,
-    masterState,
-    broadcastMessage,
-    startBroadcasting,
-    stopBroadcasting,
-    clearAllAndStop,
-    getCurrentBroadcastInfo,
-    getProgressFor,
-  } = useBle();
-
-  const handleStartUserBroadcast = async () => {
-    try {
-      await broadcastMessage(message);
-      setMessage('');
-    } catch (err) {
-      Alert.alert(
-        'Error',
-        (err as Error).message || 'Failed to encode message'
-      );
-    }
-  };
-
-  // Clear everything & stop (single button)
-  const handleClearEverythingAndStop = () => {
-    if (masterState.size === 0 && !isBroadcasting) {
-      return;
-    }
-
-    Alert.alert(
-      'Clear Everything & Stop',
-      'This will clear received messages, clear the broadcast queue, and stop broadcasting. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear all & stop',
-          style: 'destructive',
-          onPress: clearAllAndStop,
-        },
-      ]
-    );
-  };
-
-  const renderReceivedMessageCard = (state: MessageState) => {
-    const progress = getProgressFor(state);
-    
-    // Try to parse response to show transaction status
-    let transactionStatus: {
-      success?: boolean;
-      error?: string;
-      transactionHash?: string;
-      stage?: string;
-      blockNumber?: number;
-    } | null = null;
-    
-    if (state.isAck && state.isComplete && state.fullMessage) {
-      try {
-        transactionStatus = JSON.parse(state.fullMessage);
-      } catch {
-        // Not JSON, ignore
-      }
-    }
-    
-    return (
-      <Card 
-        key={`msg-${state.id}`} 
-        style={[
-          styles.messageCard,
-          transactionStatus?.success === false && styles.errorCard,
-          transactionStatus?.success === true && styles.successCard,
-        ]}
-      >
-        <Card.Content>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Title style={[styles.messageTitle, { textAlign: 'left' }]}>
-              {state.isAck ? 'Response' : 'Request'}
-            </Title>
-            {transactionStatus && (
-              <Badge 
-                style={[
-                  transactionStatus.success 
-                    ? styles.successBadge 
-                    : styles.errorBadge
-                ]}
-              >
-                {transactionStatus.success ? '✅ Success' : '❌ Failed'}
-              </Badge>
-            )}
-          </View>
-
-          {transactionStatus ? (
-            <View style={{ marginTop: 8 }}>
-              {transactionStatus.success ? (
-                <View>
-                  <Paragraph style={styles.statusText}>
-                    <Text style={styles.statusLabel}>Transaction Hash:</Text>{' '}
-                    {transactionStatus.transactionHash ? (
-                      <Text style={styles.hashText}>
-                        {transactionStatus.transactionHash.slice(0, 10)}...
-                        {transactionStatus.transactionHash.slice(-8)}
-                      </Text>
-                    ) : (
-                      'N/A'
-                    )}
-                  </Paragraph>
-                  {transactionStatus.blockNumber && (
-                    <Paragraph style={styles.statusText}>
-                      <Text style={styles.statusLabel}>Block:</Text>{' '}
-                      {transactionStatus.blockNumber}
-                    </Paragraph>
-                  )}
-                </View>
-              ) : (
-                <View>
-                  <Paragraph style={[styles.statusText, styles.errorText]}>
-                    <Text style={styles.statusLabel}>Error:</Text>{' '}
-                    {transactionStatus.error || 'Unknown error'}
-                  </Paragraph>
-                  {transactionStatus.stage && (
-                    <Paragraph style={styles.statusText}>
-                      <Text style={styles.statusLabel}>Stage:</Text>{' '}
-                      {transactionStatus.stage}
-                    </Paragraph>
-                  )}
-                </View>
-              )}
-            </View>
-          ) : (
-            <Paragraph numberOfLines={3}>
-              {state.fullMessage ||
-                (state.isComplete ? '(Decoded)' : '(Incomplete)')}
-            </Paragraph>
-          )}
-
-          <View style={{ marginTop: 8 }}>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginBottom: 6,
-              }}
-            >
-              <Text>{`Chunks: ${progress.received}/${progress.total}`}</Text>
-              <View style={{ flex: 1 }} />
-              <Text>{`${progress.percent}%`}</Text>
-            </View>
-            <ProgressBar
-              progress={progress.percent / 100}
-              style={{ height: 8, borderRadius: 6 }}
-              color={transactionStatus?.success === false ? '#f44336' : undefined}
-            />
-            <View
-              style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}
-            >
-              {Array.from({ length: state.totalChunks }, (_, i) => {
-                const idx = i + 1;
-                const have = state.chunks.has(idx);
-                return (
-                  <Badge
-                    key={idx}
-                    style={[
-                      styles.chunkBadge,
-                      have ? styles.chunkHave : styles.chunkMissing,
-                    ]}
-                  >
-                    {idx}
-                  </Badge>
-                );
-              })}
-            </View>
-          </View>
-        </Card.Content>
-      </Card>
-    );
-  };
-
-  const allMessages = Array.from(masterState.values()).sort(
-    (a, b) => b.id - a.id
-  );
-  const currentBroadcast = getCurrentBroadcastInfo();
+  const packets = Array.from(masterState.values());
 
   return (
-    <PaperProvider theme={theme}>
-      <View style={styles.container}>
-        <Surface style={styles.broadcasterSection} elevation={2}>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Title style={styles.sectionTitle}>Mesh Node</Title>
-            <View style={styles.internetStatusContainer}>
-              <Icon
-                source={hasInternet ? 'wifi' : 'bluetooth'}
-                size={24}
-                color={hasInternet ? '#4CAF50' : '#2196F3'}
-              />
-              <Text
-                style={{
-                  marginLeft: 8,
-                  color: hasInternet ? '#4CAF50' : '#2196F3',
-                }}
-              >
-                {hasInternet ? 'Online' : 'BLE Mesh'}
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={{
-              marginVertical: 8,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, color: '#555' }}>
-                Currently broadcasting:
-              </Text>
-              <Paragraph style={{ fontWeight: '700', marginTop: 2 }}>
-                {isBroadcasting && currentBroadcast.text
-                  ? `🔊 ${currentBroadcast.text}`
-                  : '— not broadcasting —'}
-              </Paragraph>
-            </View>
-            <IconButton
-              mode="outlined"
-              onPress={() => {
-                if (isBroadcasting) stopBroadcasting();
-                else startBroadcasting();
-              }}
-              icon={isBroadcasting ? 'pause' : 'play'}
-              contentStyle={{ flexDirection: 'row-reverse' }}
-            />
-          </View>
-
-          <TextInput
-            mode="outlined"
-            label="Broadcast New Message"
-            value={message}
-            onChangeText={setMessage}
-            style={styles.textInput}
-            multiline
-          />
-          <Button
-            mode="contained"
-            onPress={handleStartUserBroadcast}
-            disabled={!message.trim()}
-            style={styles.button}
-          >
-            Broadcast Message
-          </Button>
-        </Surface>
-
-        <Surface style={styles.receiverSection} elevation={2}>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <Title style={styles.sectionTitle}>Network Messages</Title>
-            <Button mode="text" onPress={handleClearEverythingAndStop} compact>
-              Clear
-            </Button>
-          </View>
-
-          <ScrollView>
-            {allMessages.length === 0 ? (
-              <Paragraph style={styles.placeholderText}>
-                Listening for messages...
-              </Paragraph>
-            ) : (
-              allMessages.map((msg) => renderReceivedMessageCard(msg))
-            )}
-          </ScrollView>
-        </Surface>
+    <SafeAreaView style={styles.container}>
+      <DynamicBackground />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Relay Hop Radar</Text>
       </View>
-    </PaperProvider>
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.statsRow}>
+          <BlurView intensity={70} tint="dark" style={styles.statBox}>
+            <Text style={styles.statValue}>{packets.length}</Text>
+            <Text style={styles.statLabel}>Total Payloads</Text>
+          </BlurView>
+          <BlurView intensity={70} tint="dark" style={styles.statBox}>
+            <Text style={[styles.statValue, { color: THEME.success }]}>{packets.filter((p: any) => p.isComplete).length}</Text>
+            <Text style={styles.statLabel}>Fully Decoded</Text>
+          </BlurView>
+        </View>
+
+        <Text style={[styles.headerSubtitle, { textAlign: 'center', marginHorizontal: 30, marginBottom: 32 }]}>
+          Live view of encrypted packets crossing your device node
+        </Text>
+
+        <Text style={styles.logHeader}>Live Feed Logs</Text>
+
+        {packets.length === 0 ? (
+          <Text style={styles.emptyText}>No background packets relayed yet...</Text>
+        ) : (
+          packets.reverse().map((packet: any) => (
+            <BlurView intensity={60} tint="dark" style={styles.packetCard} key={packet.id}>
+              <View style={styles.packetRow}>
+                <View style={styles.packetLeft}>
+                  <Text style={styles.packetId}>ID: {Math.max(1000, packet.id).toString().slice(0,6)}</Text>
+                  <Text style={styles.packetChunks}>Chunks: {packet.chunks.size}/{packet.totalChunks}</Text>
+                </View>
+                <View style={[styles.packetBadge, { backgroundColor: packet.isComplete ? "rgba(16, 185, 129, 0.2)" : "rgba(245, 158, 11, 0.2)" }]}>
+                  <Text style={[styles.packetBadgeText, { color: packet.isComplete ? THEME.success : "#F59E0B" }]}>
+                    {packet.isComplete ? "Decoded" : "Receiving"}
+                  </Text>
+                </View>
+              </View>
+              {packet.isComplete && (
+                <Text style={styles.packetData} numberOfLines={2}>
+                  Payload: {packet.fullMessage}
+                </Text>
+              )}
+            </BlurView>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Re-broadcast Intercept Overlay */}
+      {!isRelayEnabled && (
+        <View style={styles.offlineOverlayWrapper}>
+          <BlurView intensity={80} tint="dark" style={styles.overlayInner}>
+            <View style={styles.overlayBox}>
+              <Feather name="shield-off" size={60} color={THEME.textMuted} style={{ marginBottom: 16 }} />
+              <Text style={styles.overlayTitle}>Relay Mode is Offline</Text>
+              <Text style={styles.overlayDesc}>
+                Your device is currently ignoring all incoming packets to conserve battery. You are not actively participating in the Hop Pay mesh.
+              </Text>
+              <TouchableOpacity style={styles.turnOnBtn} onPress={() => setIsRelayEnabled(true)}>
+                <Text style={styles.turnOnText}>Turn On Relay</Text>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </View>
+      )}
+    </SafeAreaView>
   );
-};
+}
 
-// --- Styles ---
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f0f4f7',
-  },
-  broadcasterSection: {
-    padding: 15,
-    margin: 10,
-    borderRadius: 12,
-  },
-  receiverSection: {
-    flex: 1,
-    padding: 15,
-    margin: 10,
-    marginTop: 0,
-    borderRadius: 12,
-  },
-  sectionTitle: {
-    textAlign: 'left',
-    marginBottom: 12,
-    fontWeight: 600,
-  },
-  internetSwitchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  internetStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  textInput: {
-    marginBottom: 10,
-    minHeight: 64,
-  },
-  button: {
-    paddingVertical: 6,
-  },
-  placeholderText: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 20,
-  },
-  messageCard: {
-    marginBottom: 10,
-    elevation: 0,
-    shadowColor: 'transparent',
-    backgroundColor: '#fff',
-  },
-  messageTitle: {
-    fontSize: 16,
-  },
-  chunkBadge: {
-    margin: 3,
-    paddingHorizontal: 6,
-  },
-  chunkHave: {
-    backgroundColor: '#c8e6c9',
-    color: '#0b6623',
-  },
-  chunkMissing: {
-    backgroundColor: '#ffe0b2',
-    color: '#6a4a00',
-  },
-  successCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
-  },
-  errorCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#f44336',
-  },
-  successBadge: {
-    backgroundColor: '#4CAF50',
-    color: '#fff',
-  },
-  errorBadge: {
-    backgroundColor: '#f44336',
-    color: '#fff',
-  },
-  statusText: {
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  statusLabel: {
-    fontWeight: '600',
-    color: '#555',
-  },
-  hashText: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-  },
-  errorText: {
-    color: '#f44336',
-  },
+  container: { flex: 1, backgroundColor: "transparent" },
+  header: { padding: 24, paddingTop: 60, paddingBottom: 16 },
+  headerTitle: { fontSize: 24, fontWeight: "800", color: THEME.text, marginBottom: 4 },
+  headerSubtitle: { fontSize: 13, color: THEME.textMuted, lineHeight: 18 },
+  scrollContent: { paddingHorizontal: 24, paddingBottom: 100 },
+  statsRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 32 },
+  statBox: { flex: 1, padding: 16, borderRadius: 16, alignItems: "center", marginHorizontal: 4, borderWidth: 1, borderColor: THEME.glassBorder },
+  statValue: { fontSize: 28, fontWeight: "900", color: THEME.text, marginBottom: 4 },
+  statLabel: { fontSize: 11, fontWeight: "700", color: THEME.textMuted, textTransform: "uppercase" },
+  logHeader: { fontSize: 16, fontWeight: "800", color: THEME.text, marginBottom: 16 },
+  emptyText: { color: THEME.textMuted, textAlign: "center", marginTop: 40, fontStyle: "italic" },
+  packetCard: { padding: 16, borderRadius: 12, borderWidth: 1, borderColor: THEME.glassBorder, marginBottom: 12 },
+  packetRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  packetLeft: { flex: 1 },
+  packetId: { color: THEME.text, fontWeight: "700", fontSize: 14, marginBottom: 2 },
+  packetChunks: { color: THEME.textMuted, fontSize: 12 },
+  packetBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  packetBadgeText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  packetData: { marginTop: 12, color: THEME.primary, fontSize: 12, fontFamily: "monospace", padding: 8, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 8, overflow: "hidden" },
+  offlineOverlayWrapper: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
+  overlayInner: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  overlayBox: { width: "100%", padding: 32, borderRadius: 24, backgroundColor: "rgba(0,0,0,0.6)", borderWidth: 1, borderColor: THEME.glassBorder, alignItems: "center" },
+  overlayTitle: { fontSize: 22, fontWeight: "800", color: THEME.text, marginBottom: 16 },
+  overlayDesc: { fontSize: 14, color: THEME.textMuted, textAlign: "center", lineHeight: 22, marginBottom: 32 },
+  turnOnBtn: { backgroundColor: THEME.success, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16, width: "100%", alignItems: "center" },
+  turnOnText: { color: "#FFF", fontSize: 16, fontWeight: "700" }
 });
-
-export default MeshScreen;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,13 +14,8 @@ import { useBle, submitTransactionToBlockchain } from "@/contexts/BleContext";
 import { CONTRACT_CONFIG, TransactionPayload } from "@/constants/contracts";
 import { ethers } from "ethers";
 
-// Create transferWithAuthorization signature matching the deployed contract.
-//
-// The contract (EIPThreeDoubleZeroNine.sol) does:
-//   bytes32 messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid));
-//   ECDSA.recover(keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)), signature)
-//
-// So we must sign with the same simple-hash approach, NOT EIP-712 signTypedData.
+// Create EIP-3009 transferWithAuthorization signature using EIP-712 typed data signing
+// The contract uses EIP712._hashTypedDataV4, so we must use EIP-712 signing, not solidityPackedKeccak256
 const createTransferWithAuthorizationSignature = async (
   from: string,
   to: string,
@@ -34,7 +29,7 @@ const createTransferWithAuthorizationSignature = async (
 ): Promise<string> => {
   try {
     console.log(
-      "🔐 Creating transferWithAuthorization signature (EIP-712 signTypedData)..."
+      "≡ƒöÉ Creating EIP-3009 transferWithAuthorization signature using EIP-712 typed data..."
     );
 
     // Create wallet from private key
@@ -49,41 +44,16 @@ const createTransferWithAuthorizationSignature = async (
       );
     }
 
-    // Ensure nonce is a valid 32-byte hex string
-    let nonceBytes32: string;
-    if (nonce.startsWith("0x")) {
-      const nonceBytes = ethers.getBytes(nonce);
-      if (nonceBytes.length !== 32) {
-        throw new Error(`Nonce must be exactly 32 bytes, got ${nonceBytes.length} bytes`);
-      }
-      nonceBytes32 = nonce;
-    } else {
-      if (nonce.length !== 64) {
-        throw new Error(`Nonce must be 64 hex characters, got ${nonce.length}`);
-      }
-      nonceBytes32 = "0x" + nonce;
-    }
-
-    console.log("📝 EIP-712 Signing parameters:", {
-      from,
-      to,
-      value,
-      validAfter,
-      validBefore,
-      nonce: nonceBytes32,
-      contractAddress,
-      chainId,
-    });
-
-    // EIP-712 domain — must match the deployed contract's domain separator
+    // EIP-712 Domain - must match the contract's EIP712 constructor
+    // The contract uses: EIP712(name, "1") where name is the token name
     const domain = {
-      name: CONTRACT_CONFIG.TOKEN_NAME,    // "MESHT"
-      version: CONTRACT_CONFIG.TOKEN_VERSION, // "1"
+      name: CONTRACT_CONFIG.TOKEN_NAME, // Must match contract deployment name
+      version: CONTRACT_CONFIG.TOKEN_VERSION, // "1" as per contract
       chainId: chainId,
       verifyingContract: contractAddress,
     };
 
-    // EIP-3009 TransferWithAuthorization type
+    // EIP-712 Types - must match the contract's TRANSFER_WITH_AUTHORIZATION_TYPEHASH structure
     const types = {
       TransferWithAuthorization: [
         { name: "from", type: "address" },
@@ -95,43 +65,78 @@ const createTransferWithAuthorizationSignature = async (
       ],
     };
 
-    // The message values
-    const message = {
-      from: from,
-      to: to,
-      value: BigInt(value),
+    // Message value - ensure nonce is in correct format for EIP-712
+    // For EIP-712 bytes32 type, ethers.js signTypedData expects a hex string
+    // Ensure nonce is a valid 32-byte hex string
+    let nonceValue: string;
+    if (nonce.startsWith("0x")) {
+      // Verify it's exactly 32 bytes (64 hex chars + "0x" = 66 total chars)
+      const nonceBytes = ethers.getBytes(nonce);
+      if (nonceBytes.length !== 32) {
+        throw new Error(`Nonce must be exactly 32 bytes, got ${nonceBytes.length} bytes`);
+      }
+      nonceValue = nonce.toLowerCase(); // Normalize to lowercase
+    } else {
+      // If it's not a hex string, add 0x prefix
+      if (nonce.length !== 64) {
+        throw new Error(`Nonce must be 64 hex characters, got ${nonce.length}`);
+      }
+      nonceValue = "0x" + nonce.toLowerCase();
+    }
+    
+    const transferValue = {
+      from: from.toLowerCase(), // Normalize addresses
+      to: to.toLowerCase(),
+      value: BigInt(value), // Convert to BigInt for proper encoding
       validAfter: BigInt(validAfter),
       validBefore: BigInt(validBefore),
-      nonce: nonceBytes32,
+      nonce: nonceValue, // bytes32 as hex string
     };
 
-    console.log("📝 EIP-712 Domain:", domain);
+    console.log("≡ƒô¥ EIP-712 Domain:", domain);
+    console.log("≡ƒô¥ Message parameters:", {
+      from: transferValue.from,
+      to: transferValue.to,
+      value: transferValue.value.toString(),
+      validAfter: transferValue.validAfter.toString(),
+      validBefore: transferValue.validBefore.toString(),
+      nonce: ethers.hexlify(transferValue.nonce),
+    });
 
-    // Sign using EIP-712 typed structured data
-    const signature = await wallet.signTypedData(domain, types, message);
+    // Sign using EIP-712 typed data - this is what the contract expects
+    // The contract uses _hashTypedDataV4 which creates the EIP-712 digest
+    const signature = await wallet.signTypedData(domain, types, transferValue);
 
-    console.log("✅ EIP-712 Signature created:", {
+    console.log("Γ£à EIP-712 signature created:", {
       signature,
       signatureLength: signature.length,
     });
 
-    // Verify locally: recover signer from typed data
+    // Verify signature using EIP-712
     try {
-      const recoveredSigner = ethers.verifyTypedData(domain, types, message, signature);
-      const isValid = recoveredSigner.toLowerCase() === from.toLowerCase();
-      console.log("🔍 Signature verification:", { recoveredSigner, expectedSigner: from, isValid });
-      if (!isValid) {
-        throw new Error(`Signature verification failed: recovered ${recoveredSigner}, expected ${from}`);
-      }
+      // Recover signer from EIP-712 signature
+      const recoveredSigner = ethers.verifyTypedData(
+        domain,
+        types,
+        transferValue,
+        signature
+      );
+      console.log("≡ƒöì EIP-712 Signature verification:", {
+        recoveredSigner,
+        expectedSigner: from,
+        isValid: recoveredSigner.toLowerCase() === from.toLowerCase(),
+      });
     } catch (verifyError) {
-      console.warn("⚠️ Signature verification failed:", verifyError);
-      throw verifyError;
+      console.warn("ΓÜá∩╕Å EIP-712 signature verification failed:", verifyError);
     }
 
     return signature;
   } catch (error) {
-    console.error("❌ Error creating signature:", error);
-    throw new Error(`Failed to create transferWithAuthorization signature: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      "Γ¥î Error creating EIP-712 signature:",
+      error
+    );
+    throw new Error("Failed to create transferWithAuthorization signature");
   }
 };
 
@@ -141,42 +146,42 @@ const TRANSACTION_STEPS = [
     id: 1,
     title: "Preparing Transaction",
     description: "Encrypting transaction payload with Web3 cryptography",
-    icon: "🔐",
+    icon: "≡ƒöÉ",
     duration: 2000,
   },
   {
     id: 2,
     title: "Scanning for Nearby Devices",
     description: "Looking for Bluetooth-enabled devices in mesh network",
-    icon: "📡",
+    icon: "≡ƒôí",
     duration: 3000,
   },
   {
     id: 3,
     title: "Hopping Through Network",
     description: "Relaying encrypted payload through offline mesh nodes",
-    icon: "🔄",
+    icon: "≡ƒöä",
     duration: 4000,
   },
   {
     id: 4,
     title: "Finding Internet Gateway",
     description: "Locating device with active internet connection",
-    icon: "🌐",
+    icon: "≡ƒîÉ",
     duration: 3500,
   },
   {
     id: 5,
     title: "Broadcasting Transaction",
     description: "Submitting to blockchain network via gateway device",
-    icon: "🚀",
+    icon: "≡ƒÜÇ",
     duration: 2500,
   },
   {
     id: 6,
     title: "Transaction Confirmed",
     description: "Successfully broadcasted to the blockchain",
-    icon: "✅",
+    icon: "Γ£à",
     duration: 1000,
   },
 ];
@@ -199,10 +204,6 @@ interface TransactionLoaderProps {
     toAddress: string;
     chain: string;
     chainId: number;
-    // UPI metadata from QR scan — wired through to relayer for Decentro INR payout
-    upiId?: string;
-    merchantName?: string;
-    merchantPhone?: string; // for demo bank SMS
   };
 }
 
@@ -240,7 +241,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
     // STRICT: only resume if we have proper confirmation through BLE mesh network
     if (!broadcastId) {
       console.log(
-        "⚠️ Cannot resume transaction flow: no broadcast ID - waiting for confirmation"
+        "ΓÜá∩╕Å Cannot resume transaction flow: no broadcast ID - waiting for confirmation"
       );
       return;
     }
@@ -248,14 +249,14 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
     const state = masterState.get(broadcastId);
     if (!state || !state.isComplete || !state.isAck) {
       console.log(
-        "⚠️ Cannot resume transaction flow: invalid state - still waiting for confirmation",
+        "ΓÜá∩╕Å Cannot resume transaction flow: invalid state - still waiting for confirmation",
         state
       );
       return;
     }
 
     console.log(
-      "✅ Resuming transaction flow with CONFIRMED state from mesh network"
+      "Γ£à Resuming transaction flow with CONFIRMED state from mesh network"
     );
 
     // Continue from gateway step through broadcasting to completion
@@ -311,7 +312,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         const responseObj = JSON.parse(directSubmissionResponse);
         
         if (responseObj.success) {
-          console.log("✅ Direct submission successful - completing transaction");
+          console.log("Γ£à Direct submission successful - completing transaction");
           // Skip to final step and complete
           setCurrentStep(TRANSACTION_STEPS.length - 1);
           setLoadingMessageIndex(LOADING_MESSAGES.length - 1);
@@ -337,17 +338,16 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
             }, 1500);
           }, 800);
         } else {
-          console.error("❌ Direct submission failed:", responseObj.error);
-          // Transaction failed — pass the response with success:false back
-          // transaction.tsx will check response.success and show an error Alert
+          console.error("Γ¥î Direct submission failed:", responseObj.error);
+          // Show error but still complete the flow
           setCurrentStep(TRANSACTION_STEPS.length - 1);
           setIsCompleted(true);
           setTimeout(() => {
             onComplete(directSubmissionResponse);
-          }, 1000);
+          }, 1500);
         }
       } catch (parseErr) {
-        console.error("❌ Error parsing direct submission response:", parseErr);
+        console.error("Γ¥î Error parsing direct submission response:", parseErr);
       }
     }
   }, [isDirectSubmission, directSubmissionResponse, onComplete, progressAnim, stepAnimations]);
@@ -380,7 +380,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
       // Only allow completion if we have a confirmed broadcast state
       if (!broadcastId || !masterState.has(broadcastId)) {
         console.log(
-          "⚠️ STRICT Safety check: Preventing completion - no confirmed mesh state"
+          "ΓÜá∩╕Å STRICT Safety check: Preventing completion - no confirmed mesh state"
         );
         setIsCompleted(false);
         return;
@@ -389,7 +389,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
       const state = masterState.get(broadcastId);
       if (!state || !state.isComplete || !state.isAck) {
         console.log(
-          "⚠️ STRICT Safety check: Preventing completion - mesh confirmation not received"
+          "ΓÜá∩╕Å STRICT Safety check: Preventing completion - mesh confirmation not received"
         );
         setIsCompleted(false);
       }
@@ -512,8 +512,8 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         throw new Error("Missing transaction data or wallet address");
       }
 
-      console.log("🔐 Creating transaction payload...");
-      console.log("🌐 Device has internet:", hasInternet);
+      console.log("≡ƒöÉ Creating transaction payload...");
+      console.log("≡ƒîÉ Device has internet:", hasInternet);
 
       // Generate transaction parameters similar to simpleSubmitTxnOnChain.ts
       const currentTime = Math.floor(Date.now() / 1000);
@@ -531,9 +531,10 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         throw new Error("No wallet private key available for signing");
       }
 
-      // Convert amount to wei (18 decimals). Use ethers.parseUnits to handle
-      // decimal values like "0.5" safely — BigInt("0.5") would throw a SyntaxError.
-      const valueInWei = ethers.parseUnits(transactionData.amount, 18).toString();
+      // Convert amount to wei (assuming 18 decimals)
+      const valueInWei = (
+        BigInt(transactionData.amount) * BigInt(10 ** 18)
+      ).toString();
 
       // Create real EIP-3009 signature using wallet's private key
       const realSignature = await createTransferWithAuthorizationSignature(
@@ -548,7 +549,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         walletData.privateKey
       );
 
-      // Create the transaction payload — include UPI metadata so relayer can trigger Decentro payout
+      // Create the transaction payload structure
       const transactionPayload: TransactionPayload = {
         type: "TRANSFER_WITH_AUTHORIZATION",
         contractAddress: CONTRACT_CONFIG.CONTRACT_ADDRESS,
@@ -562,87 +563,60 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           nonce: nonce,
           signature: realSignature,
         },
-        upiId: transactionData.upiId,
-        merchantName: transactionData.merchantName,
-        merchantPhone: transactionData.merchantPhone,
       };
 
-      console.log("📝 Transaction payload created:", {
+      console.log("≡ƒô¥ Transaction payload created:", {
         type: transactionPayload.type,
+        contractAddress: transactionPayload.contractAddress,
         from: transactionPayload.parameters.from,
         to: transactionPayload.parameters.to,
         value: transactionPayload.parameters.value,
-        upiId: transactionPayload.upiId,
       });
 
       const payloadString = JSON.stringify(transactionPayload);
 
-      // Submit via relayer
+      // Check internet connectivity and choose submission path
       if (hasInternet) {
-        console.log("🚀 Device has internet - submitting via relayer...");
+        // DIRECT SUBMISSION PATH: Device has internet, submit directly
+        console.log("≡ƒÜÇ Device has internet - submitting directly to blockchain...");
         setIsDirectSubmission(true);
-        setShouldPauseFlow(false);
+        setShouldPauseFlow(false); // Don't pause for mesh steps
         setIsWaitingForConfirmation(false);
 
         try {
-          let response: string;
-
-          if (transactionPayload.upiId) {
-            // UPI payment → route through relayer: blockchain + Decentro INR payout + SMS
-            console.log("💳 UPI payment — calling relayer for INR payout to:", transactionPayload.upiId);
-          } else {
-            console.log("🔗 Crypto payment — routing through relayer for blockchain submission");
-          }
-
-          try {
-            const relayRes = await fetch(CONTRACT_CONFIG.RELAYER_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: payloadString,
-            });
-            const relayJson = await relayRes.json();
-            response = JSON.stringify({
-              success: relayJson.success,
-              transactionHash: relayJson.transactionHash,
-              blockNumber: relayJson.blockNumber,
-              payout: relayJson.payout,
-              amountInr: relayJson.amountInr,
-              error: relayJson.error,
-              timestamp: Date.now(),
-            });
-            if (relayJson.success) {
-              console.log("✅ Relayer: TX", relayJson.transactionHash, "| Payout:", relayJson.payout);
-            }
-          } catch (relayErr) {
-            // Fallback: if relayer is unreachable, submit directly to blockchain
-            console.warn("⚠️ Relayer unreachable, falling back to direct submission:", relayErr);
-            response = await submitTransactionToBlockchain(payloadString);
-          }
-
+          // Directly submit to blockchain
+          const response = await submitTransactionToBlockchain(payloadString);
           setDirectSubmissionResponse(response);
+          console.log("Γ£à Direct submission response received:", response);
 
+          // Parse and handle response
           try {
             const responseObj = JSON.parse(response);
             if (responseObj.success) {
-              console.log("✅ Transaction successful! Hash:", responseObj.transactionHash);
+              console.log("Γ£à Transaction successful!");
+              console.log("Transaction Hash:", responseObj.transactionHash);
+              // The flow will handle completion in the UI update logic
             } else {
-              console.error("❌ Transaction failed:", responseObj.error);
+              console.error("Γ¥î Transaction failed:", responseObj.error);
+              // Error will be handled in the response handler
             }
           } catch (parseErr) {
-            console.warn("⚠️ Could not parse response:", parseErr);
+            console.warn("ΓÜá∩╕Å Could not parse direct submission response:", parseErr);
           }
         } catch (error) {
-          console.error("❌ Error in submission:", error);
-          setDirectSubmissionResponse(JSON.stringify({
+          console.error("Γ¥î Error in direct submission:", error);
+          // Create error response
+          const errorResponse = JSON.stringify({
             success: false,
             error: error instanceof Error ? error.message : String(error),
             timestamp: Date.now(),
             stage: "direct_submission",
-          }));
+          });
+          setDirectSubmissionResponse(errorResponse);
         }
       } else {
         // MESH NETWORK PATH: No internet, broadcast via BLE mesh
-        console.log("📡 Device has no internet - broadcasting via BLE mesh network...");
+        console.log("≡ƒôí Device has no internet - broadcasting via BLE mesh network...");
         setIsDirectSubmission(false);
         
         try {
@@ -661,12 +635,12 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           if (latestState) {
             setBroadcastId(latestState[0]);
             console.log(
-              "🚀 Started broadcasting transaction with ID:",
+              "≡ƒÜÇ Started broadcasting transaction with ID:",
               latestState[0]
             );
           }
         } catch (error) {
-          console.error("❌ Error broadcasting transaction payload:", error);
+          console.error("Γ¥î Error broadcasting transaction payload:", error);
           // Reset flags on error
           setIsBroadcasting(false);
           setShouldPauseFlow(false);
@@ -674,7 +648,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         }
       }
     } catch (error) {
-      console.error("❌ Error signing transaction:", error);
+      console.error("Γ¥î Error signing transaction:", error);
     }
   };
 
@@ -695,7 +669,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         if (!hasInternet && (shouldPauseFlow || isWaitingForConfirmation) && index >= 3) {
           // Stop at "Finding Internet Gateway" step (index 3) and wait for confirmation (mesh network only)
           console.log(
-            "🔄 Pausing transaction flow at step:",
+            "≡ƒöä Pausing transaction flow at step:",
             step.title,
             "waiting for confirmation..."
           );
@@ -719,7 +693,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           setIsWaitingForConfirmation(true);
           setShouldPauseFlow(true);
           console.log(
-            "🌐 Reached Finding Internet Gateway step - waiting for confirmation..."
+            "≡ƒîÉ Reached Finding Internet Gateway step - waiting for confirmation..."
           );
         }
 
@@ -949,7 +923,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           {/* Success State */}
           {isCompleted && (
             <Animated.View style={styles.successContainer}>
-              <Text style={styles.successIcon}>🎉</Text>
+              <Text style={styles.successIcon}>≡ƒÄë</Text>
               <Text style={styles.successText}>Transaction Successful!</Text>
             </Animated.View>
           )}
@@ -968,20 +942,12 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
   );
 };
 
-const THEME = {
-  bg: "#0F172A",
-  glassBg: "rgba(255, 255, 255, 0.1)",
-  glassBorder: "rgba(255, 255, 255, 0.2)",
-  primary: "#3B82F6",
-  success: "#10B981",
-  text: "#F8FAFC",
-  textMuted: "#94A3B8"
-};
+// const { width, height } = Dimensions.get('window'); // Commented out as not used
 
 const styles = StyleSheet.create({
   fullPageContainer: {
     flex: 1,
-    backgroundColor: THEME.bg,
+    backgroundColor: Colors.light.background,
   },
   container: {
     flex: 1,
@@ -995,14 +961,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: "bold",
-    color: THEME.text,
+    color: Colors.light.text,
     marginBottom: 10,
   },
   transactionInfo: {
     alignItems: "center",
-    backgroundColor: THEME.glassBg,
-    borderColor: THEME.glassBorder,
-    borderWidth: 1,
+    backgroundColor: "#f8f9fa",
     padding: 12,
     borderRadius: 8,
     width: "100%",
@@ -1010,17 +974,17 @@ const styles = StyleSheet.create({
   transactionText: {
     fontSize: 16,
     fontWeight: "600",
-    color: THEME.text,
+    color: Colors.light.text,
   },
   transactionAddress: {
     fontSize: 14,
-    color: THEME.textMuted,
+    color: Colors.light.icon,
     fontFamily: "monospace",
     marginTop: 2,
   },
   transactionChain: {
     fontSize: 12,
-    color: THEME.textMuted,
+    color: Colors.light.icon,
     marginTop: 2,
   },
   progressContainer: {
@@ -1029,18 +993,18 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: 6,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "#e0e0e0",
     borderRadius: 3,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    backgroundColor: THEME.primary,
+    backgroundColor: Colors.light.tint,
     borderRadius: 3,
   },
   progressText: {
     fontSize: 12,
-    color: THEME.textMuted,
+    color: Colors.light.icon,
     textAlign: "center",
     marginTop: 8,
   },
@@ -1067,35 +1031,34 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: THEME.glassBg,
+    backgroundColor: "#f0f0f0",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
   },
   stepIconActive: {
-    backgroundColor: "rgba(59, 130, 246, 0.2)",
-    borderColor: THEME.primary,
+    backgroundColor: Colors.light.tint,
+    borderColor: Colors.light.tint,
   },
   stepIconCompleted: {
-    backgroundColor: "rgba(16, 185, 129, 0.2)",
-    borderColor: THEME.success,
+    backgroundColor: "#4CAF50",
+    borderColor: "#4CAF50",
   },
   stepIconText: {
     fontSize: 22,
-    color: THEME.textMuted,
   },
   stepIconTextActive: {
-    color: "#fff",
+    color: "white",
   },
   stepLine: {
     width: 3,
     height: 40,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "#e0e0e0",
     marginTop: 8,
   },
   stepLineCompleted: {
-    backgroundColor: THEME.success,
+    backgroundColor: "#4CAF50",
   },
   stepContent: {
     flex: 1,
@@ -1104,19 +1067,19 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: THEME.textMuted,
+    color: "#999",
     marginBottom: 4,
   },
   stepTitleActive: {
-    color: THEME.text,
+    color: Colors.light.text,
   },
   stepDescription: {
     fontSize: 14,
-    color: "rgba(255,255,255,0.4)",
+    color: "#bbb",
     lineHeight: 18,
   },
   stepDescriptionActive: {
-    color: THEME.textMuted,
+    color: Colors.light.icon,
   },
   loadingContainer: {
     alignItems: "center",
@@ -1126,23 +1089,25 @@ const styles = StyleSheet.create({
   },
   loadingMessage: {
     fontSize: 14,
-    color: THEME.primary,
-    fontWeight: "600",
+    color: Colors.light.tint,
+    fontStyle: "italic",
   },
   fixedFooter: {
     padding: 20,
-    backgroundColor: "transparent",
+    backgroundColor: Colors.light.background,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
   },
   cancelButton: {
-    backgroundColor: THEME.glassBg,
+    backgroundColor: "transparent",
     padding: 15,
     borderRadius: 8,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: THEME.glassBorder,
+    borderColor: Colors.light.icon,
   },
   cancelButtonText: {
-    color: THEME.textMuted,
+    color: Colors.light.icon,
     fontSize: 14,
     fontWeight: "500",
   },
@@ -1158,6 +1123,6 @@ const styles = StyleSheet.create({
   successText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: THEME.success,
+    color: "#4CAF50",
   },
 });

@@ -1,214 +1,348 @@
-import React, { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert } from "react-native";
-import QRCode from 'react-native-qrcode-svg';
-import { Colors } from '@/constants/theme';
-import { useWallet } from '@/contexts/WalletContext';
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  SafeAreaView,
+  TouchableOpacity,
+  ScrollView,
+  Switch,
+} from "react-native";
+import { BlurView } from "expo-blur";
+import { Feather } from "@expo/vector-icons";
+import { router, Stack } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useWallet } from "@/contexts/WalletContext";
+import { useBle } from "@/contexts/BleContext";
+import DynamicBackground from "@/components/DynamicBackground";
 
-export default function Show(): React.JSX.Element {
-  const { userWalletAddress, isLoggedIn, walletData } = useWallet();
-  const [customAddress, setCustomAddress] = useState<string>('');
-  
-  // Use user's wallet address if logged in, otherwise use custom address
-  const displayAddress = userWalletAddress || customAddress || '0x742d35Cc6634C0532925a3b8D404d0C8b7b8E5c2';
+// --- Theme Constants ---
+const THEME = {
+  bg: "#0F172A",
+  glassBg: "rgba(255, 255, 255, 0.08)",
+  glassBorder: "rgba(255, 255, 255, 0.2)",
+  primary: "#3B82F6",
+  secondary: "#8B5CF6",
+  success: "#10B981",
+  danger: "#EF4444",
+  text: "#F8FAFC",
+  textMuted: "#94A3B8",
+};
 
-  const generateRandomAddress = () => {
-    // Generate a mock Web3 wallet address for demonstration
-    const randomHex = () => Math.floor(Math.random() * 16).toString(16);
-    const newAddress = '0x' + Array.from({ length: 40 }, () => randomHex()).join('');
-    setCustomAddress(newAddress);
+interface UserProfile {
+  realUpiId: string;
+  hopHandle: string;
+  phoneNumber?: string;
+  name?: string;
+}
+
+export default function SettingsDashboard(): React.JSX.Element {
+  const { userWalletAddress } = useWallet();
+  const bleContext = useBle() as any;
+  const isRelayEnabled = bleContext.isRelayEnabled ?? true;
+  const setIsRelayEnabled = bleContext.setIsRelayEnabled;
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const p = await AsyncStorage.getItem("@user_profile");
+      if (p) {
+        setProfile(JSON.parse(p));
+      } else {
+        // Fallback for demo
+        setProfile({
+          hopHandle: "user@hoppay",
+          realUpiId: "user@okhdfc"
+        });
+      }
+    } catch {}
   };
 
-  const copyPrivateKey = () => {
-    if (!isLoggedIn || !walletData?.privateKey) {
-      Alert.alert('Error', 'No private key available. Please create a wallet first.');
-      return;
-    }
-
-    // In a real app, you would use a clipboard library like @react-native-clipboard/clipboard
-    // For now, we'll show an alert with the private key
-    Alert.alert(
-      'Private Key',
-      `Your private key:\n\n${walletData.privateKey}\n\n⚠️ Keep this private key secure and never share it with anyone!`,
-      [
-        {
-          text: 'Copy to Clipboard',
-          onPress: () => {
-            // Here you would implement actual clipboard functionality
-            Alert.alert('Copied', 'Private key copied to clipboard');
-          }
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
-    );
+  const handleMenuPress = (route: any) => {
+    router.push(route);
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Wallet Address QR Code</Text>
-      
-      <View style={styles.qrContainer}>
-        <QRCode
-          value={displayAddress}
-          size={200}
-          color="black"
-          backgroundColor="white"
-        />
-      </View>
+    <SafeAreaView style={styles.container}>
+      {/* Dynamic drifting background */}
+      <DynamicBackground />
 
-      {/* Wallet Status */}
-      <View style={styles.statusContainer}>
-        <Text style={styles.statusText}>
-          Status: {isLoggedIn ? "Wallet Connected" : "No Wallet"}
-        </Text>
-        {walletData && (
-          <Text style={styles.createdText}>
-            Created: {walletData.createdAt.toLocaleDateString()}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.addressContainer}>
-        <Text style={styles.addressLabel}>
-          {isLoggedIn ? "Your Wallet Address:" : "Custom Address:"}
-        </Text>
-        {isLoggedIn ? (
-          <Text style={styles.walletAddressText}>{userWalletAddress}</Text>
-        ) : (
-          <TextInput
-            style={styles.addressInput}
-            value={customAddress}
-            onChangeText={setCustomAddress}
-            placeholder="Enter custom wallet address"
-            placeholderTextColor={Colors.light.icon}
-            multiline
-          />
-        )}
-      </View>
-
-      {!isLoggedIn && (
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.generateButton} onPress={generateRandomAddress}>
-            <Text style={styles.buttonText}>Generate Random Address</Text>
-          </TouchableOpacity>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Settings</Text>
         </View>
-      )}
 
-      {/* Copy Private Key Button - Only show when logged in */}
-      {isLoggedIn && (
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.copyPrivateKeyButton} onPress={copyPrivateKey}>
-            <Text style={styles.copyButtonText}>Export Private Key</Text>
-          </TouchableOpacity>
+        {/* User Profile Glass Card */}
+        <BlurView intensity={70} tint="dark" style={styles.profileCard}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>{profile?.hopHandle?.charAt(0).toUpperCase() || "H"}</Text>
+          </View>
+          
+          <View style={styles.profileInfo}>
+            <Text style={styles.userName}>{profile?.name || "Ravi Kumar"}</Text>
+            <Text style={styles.userHandle}>{profile?.hopHandle || "ravi@hoppay"}</Text>
+          </View>
+          
+          <View style={styles.divider} />
+          
+          <View style={styles.profileDetailRow}>
+            <Feather name="at-sign" size={14} color={THEME.textMuted} />
+            <Text style={styles.profileDetailText}>UPI: {profile?.realUpiId || "ravikumar@okhdfcbank"}</Text>
+          </View>
+          <View style={styles.profileDetailRow}>
+            <Feather name="phone" size={14} color={THEME.textMuted} />
+            <Text style={styles.profileDetailText}>{profile?.phoneNumber || "+91 98765 43210"}</Text>
+          </View>
+        </BlurView>
+
+        {/* Network Section */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionLabel}>NETWORK PARTICIPATION</Text>
+          <Text style={[styles.profileDetailText, { marginLeft: 8, marginBottom: 12, marginRight: 8, fontSize: 13, lineHeight: 18 }]}>Toggle your device's role as a packet transferrer in the BLE mesh network. Turning this off saves battery but reduces network resilience.</Text>
+          
+          <BlurView intensity={50} tint="dark" style={styles.menuCard}>
+            <View style={styles.menuRow}>
+              <View style={[styles.menuIconBox, { backgroundColor: isRelayEnabled ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)" }]}>
+                <Feather name="radio" size={20} color={isRelayEnabled ? THEME.success : THEME.danger} />
+              </View>
+              <Text style={styles.menuLabel}>Relay Node Active</Text>
+              <Switch 
+                value={isRelayEnabled} 
+                onValueChange={(val) => setIsRelayEnabled && setIsRelayEnabled(val)}
+                trackColor={{ false: "#333", true: THEME.success }}
+                ios_backgroundColor="#333"
+              />
+            </View>
+          </BlurView>
         </View>
-      )}
-    </View>
+
+        {/* Menu Section */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionLabel}>PREFERENCES</Text>
+          
+          <BlurView intensity={50} tint="dark" style={styles.menuCard}>
+            
+            {/* Account Details */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/settings/account")}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(59, 130, 246, 0.15)" }]}>
+                <Feather name="user" size={20} color={THEME.primary} />
+              </View>
+              <Text style={styles.menuLabel}>Account Details</Text>
+              <Feather name="chevron-right" size={20} color={THEME.textMuted} />
+            </TouchableOpacity>
+
+            <View style={styles.rowDivider} />
+
+            {/* Display QR Option */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/receive")}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(139, 92, 246, 0.15)" }]}>
+                <Feather name="maximize" size={20} color={THEME.secondary} />
+              </View>
+              <Text style={styles.menuLabel}>Display QR</Text>
+              <Feather name="chevron-right" size={20} color={THEME.textMuted} />
+            </TouchableOpacity>
+
+            <View style={styles.rowDivider} />
+
+            {/* Notifications */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/settings/notifications")}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
+                <Feather name="bell" size={20} color={THEME.success} />
+              </View>
+              <Text style={styles.menuLabel}>Notifications Settings</Text>
+              <Feather name="chevron-right" size={20} color={THEME.textMuted} />
+            </TouchableOpacity>
+
+          </BlurView>
+        </View>
+
+        {/* System Section */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionLabel}>SYSTEM & SECURITY</Text>
+          
+          <BlurView intensity={50} tint="dark" style={styles.menuCard}>
+            
+            {/* Privacy & Security */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/settings/privacy")}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
+                <Feather name="lock" size={20} color="#F59E0B" />
+              </View>
+              <Text style={styles.menuLabel}>Privacy & Security</Text>
+              <Feather name="chevron-right" size={20} color={THEME.textMuted} />
+            </TouchableOpacity>
+
+            <View style={styles.rowDivider} />
+
+            {/* About HopPay */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/settings/about")}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(255, 255, 255, 0.1)" }]}>
+                <Feather name="info" size={20} color="#FFF" />
+              </View>
+              <Text style={styles.menuLabel}>About HopPay</Text>
+              <Feather name="chevron-right" size={20} color={THEME.textMuted} />
+            </TouchableOpacity>
+
+          </BlurView>
+        </View>
+
+        {/* Danger Zone */}
+        <View style={styles.menuSection}>
+          <Text style={[styles.sectionLabel, { color: THEME.danger }]}>DANGER ZONE</Text>
+          
+          <BlurView intensity={50} tint="dark" style={[styles.menuCard, { borderColor: "rgba(239,68,68,0.3)" }]}>
+            
+            {/* Delete Account */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/settings/delete-account")}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(239, 68, 68, 0.15)" }]}>
+                <Feather name="trash-2" size={20} color={THEME.danger} />
+              </View>
+              <Text style={[styles.menuLabel, { color: THEME.danger }]}>Delete Account</Text>
+              <Feather name="chevron-right" size={20} color={THEME.danger} />
+            </TouchableOpacity>
+
+          </BlurView>
+        </View>
+
+        <Text style={styles.versionText}>Hop Pay Offline v1.0.0 (Hackathon)</Text>
+
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Colors.light.background,
-    padding: 20,
+    backgroundColor: "transparent",
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors.light.text,
-    marginBottom: 30,
+  scrollContent: {
+    padding: 24,
+    paddingTop: 60,
+    paddingBottom: 120, // Clear the bottom tab space
   },
-  qrContainer: {
-    padding: 20,
-    backgroundColor: 'white',
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-    marginBottom: 30,
+  header: {
+    marginBottom: 24,
   },
-  addressContainer: {
-    width: '100%',
-    marginBottom: 30,
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: THEME.text,
+    letterSpacing: 1,
   },
-  addressLabel: {
+  profileCard: {
+    borderRadius: 24,
+    padding: 24,
+    backgroundColor: THEME.glassBg,
+    borderColor: THEME.glassBorder,
+    borderWidth: 1,
+    overflow: "hidden",
+    alignItems: "center",
+    marginBottom: 32,
+  },
+  avatarCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: THEME.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    shadowColor: THEME.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+  },
+  avatarText: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#FFF",
+  },
+  profileInfo: {
+    alignItems: "center",
+  },
+  userName: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: THEME.text,
+    marginBottom: 4,
+  },
+  userHandle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
+    fontWeight: "600",
+    color: THEME.primary,
+  },
+  divider: {
+    width: "100%",
+    height: 1,
+    backgroundColor: THEME.glassBorder,
+    marginVertical: 20,
+  },
+  profileDetailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
     marginBottom: 10,
+    paddingHorizontal: 10,
   },
-  addressInput: {
+  profileDetailText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: THEME.textMuted,
+    marginLeft: 12,
+    fontFamily: "monospace",
+  },
+  menuSection: {
+    marginBottom: 32,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: THEME.textMuted,
+    letterSpacing: 2,
+    marginBottom: 12,
+    marginLeft: 8,
+  },
+  menuCard: {
+    borderRadius: 20,
+    backgroundColor: THEME.glassBg,
+    borderColor: THEME.glassBorder,
     borderWidth: 1,
-    borderColor: Colors.light.icon,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    color: Colors.light.text,
-    backgroundColor: 'white',
-    minHeight: 60,
-    textAlignVertical: 'top',
+    overflow: "hidden",
   },
-  statusContainer: {
-    marginBottom: 20,
-    alignItems: 'center',
+  menuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
   },
-  statusText: {
+  menuIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  menuLabel: {
+    flex: 1,
     fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: 5,
+    fontWeight: "600",
+    color: THEME.text,
   },
-  createdText: {
-    fontSize: 14,
-    color: Colors.light.icon,
+  rowDivider: {
+    height: 1,
+    backgroundColor: THEME.glassBorder,
+    marginLeft: 72, // Align with text
   },
-  walletAddressText: {
-    fontSize: 14,
-    fontFamily: 'monospace',
-    color: Colors.light.text,
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.light.icon,
-    minHeight: 60,
-    textAlignVertical: 'top',
-  },
-  buttonContainer: {
-    width: '100%',
-    gap: 15,
-  },
-  generateButton: {
-    backgroundColor: '#6B7280',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  copyPrivateKeyButton: {
-    backgroundColor: '#6B7280', // Same gray color as generate button
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  copyButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  versionText: {
+    textAlign: "center",
+    color: THEME.textMuted,
+    fontSize: 12,
+    marginTop: 20,
+    fontFamily: "monospace",
+  }
 });
