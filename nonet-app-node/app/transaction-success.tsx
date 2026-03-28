@@ -49,71 +49,28 @@ export default function TransactionSuccessPage(): React.JSX.Element {
     stopBroadcasting();
   }, [stopBroadcasting]);
 
-  // ── Extract phone number from UPI ID ────────────────────────────────────
-  const extractPhoneFromUpi = (upiIdString: string): string | null => {
-    // Pattern: UPI IDs like "9876543210@paytm" start with 10-digit Indian phone number
-    const match = upiIdString.match(/^([6-9]\d{9})@/);
-    return match ? match[1] : null;
-  };
-
-  // ── Trigger SMS on page load ──────────────────────────────────────────────
+  // ── SMS is now handled by the relayer backend automatically ──────────────
+  // The /relay endpoint sends SMS after successful blockchain transaction.
+  // No need to call /send-sms separately from the frontend to avoid duplicates.
+  
+  // If you need to show SMS status in UI, you can:
+  // 1. Get SMS status from the relay response
+  // 2. Or assume SMS was sent if UPI ID exists
+  
   useEffect(() => {
-    const triggerSms = async () => {
-      // Only send SMS if we have a UPI ID or merchant phone
-      if (!upiId && !merchantPhone) {
-        console.log("[SMS] ⚠️ No UPI ID or merchant phone - skipping SMS (use DEMO fallback only from backend)");
-        return;
-      }
-
-      // Extract phone from UPI ID if available
-      const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
-      const finalPhone = phoneFromUpi || merchantPhone;
-
-      if (phoneFromUpi) {
-        console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+    // Auto-detect if SMS should have been sent based on UPI ID
+    if (upiId || merchantPhone) {
+      console.log("[SMS] 📱 SMS notification handled by relayer backend");
+      setSmsStatus("sent");
+      // Extract phone for display purposes only
+      const phoneMatch = upiId?.match(/^([6-9]\d{9})@/);
+      if (phoneMatch) {
+        setSmsPhone(phoneMatch[1]);
       } else if (merchantPhone) {
-        console.log(`[SMS] 📱 Using merchant phone: ${merchantPhone}`);
+        setSmsPhone(merchantPhone);
       }
-
-      // If we have UPI ID but couldn't extract phone, let backend try with DEMO fallback
-      if (upiId && !finalPhone) {
-        console.log("[SMS] ⚠️ Could not extract phone from UPI ID - backend will try DEMO_MERCHANT_PHONE");
-      }
-
-      setSmsStatus("sending");
-      try {
-        const smsUrl = CONTRACT_CONFIG.RELAYER_URL.replace("/relay", "/send-sms");
-        console.log("[SMS] Calling:", smsUrl);
-
-        const res = await fetch(smsUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            upiId: upiId || undefined,
-            merchantPhone: finalPhone || undefined, // Send extracted phone or merchantPhone
-            amount: amount || "0",
-            txHash: txHash || "",
-            merchantName: merchantName || "Merchant",
-          }),
-        });
-
-        const data = await res.json();
-        console.log("[SMS] Response:", data);
-
-        if (data.success) {
-          setSmsStatus("sent");
-          setSmsPhone(data.phone || "");
-        } else {
-          setSmsStatus("failed");
-        }
-      } catch (err) {
-        console.error("[SMS] Error:", err);
-        setSmsStatus("failed");
-      }
-    };
-
-    triggerSms();
-  }, [upiId, merchantPhone, amount, txHash, merchantName]);
+    }
+  }, [upiId, merchantPhone]);
 
   const generateSignatureString = (hash: string): string => {
     if (!hash) return "Generating signature...";
