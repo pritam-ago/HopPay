@@ -21,7 +21,6 @@ exports.triggerInrPayout = triggerInrPayout;
 const axios_1 = __importDefault(require("axios"));
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
-// ─── Config ───────────────────────────────────────────────────────────────────
 const CLIENT_ID = process.env.DECENTRO_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.DECENTRO_CLIENT_SECRET || "";
 const CONSUMER_URN = process.env.DECENTRO_CONSUMER_URN || "";
@@ -54,13 +53,12 @@ async function triggerInrPayout(toUpiId, amountInr, txHash, merchantName = "Merc
             referenceId: `MOCK_${txHash.slice(2, 12).toUpperCase()}`,
             transactionStatus: "success",
             utrNumber: `UTR${Date.now()}`,
-            message: `Mock payout of ₹${amountInr} to ${toUpiId} — set DECENTRO_* keys for real transfers`,
+            message: `Mock payout of ₹${amountInr} to ${toUpiId}`,
         };
     }
-    // Decentro requires a unique reference ID per transaction (max 20 chars, alphanumeric)
     const referenceId = `MESHT${txHash.slice(2, 17).toUpperCase()}`;
     try {
-        console.log(`[PAYOUT] 🚀 Initiating ₹${amountInr} UPI payout to ${toUpiId} via Decentro`);
+        console.log(`[PAYOUT] 🚀 ₹${amountInr} UPI payout to ${toUpiId}`);
         const response = await axios_1.default.post(`${BASE_URL}/v3/core_banking/money_transfer/initiate`, {
             reference_id: referenceId,
             purpose_message: `MeshT payment settlement - Tx ${txHash.slice(0, 16)}`,
@@ -137,3 +135,4 @@ async function triggerInrPayout(toUpiId, amountInr, txHash, merchantName = "Merc
         };
     }
 }
+module.exports = { meshtToInr, triggerInrPayout };

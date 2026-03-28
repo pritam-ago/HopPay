@@ -1,26 +1,11 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * MeshT Ghost Voucher Relayer — Express Server
- *
- * Accepts signed EIP-3009 "Ghost Vouchers" from merchant devices,
- * submits them to the Flow EVM blockchain, and triggers an INR payout
- * to the merchant's UPI ID via Cashfree.
- *
- * Endpoints:
- *   POST /relay        — Submit a Ghost Voucher payload for on-chain settlement
- *   GET  /health       — Health check
- *   GET  /queue        — View pending relays (for debugging)
- */
-const express_1 = __importDefault(require("express"));
-const cors_1 = __importDefault(require("cors"));
-const dotenv_1 = __importDefault(require("dotenv"));
-const ethers_1 = require("ethers");
-const payout_js_1 = require("./payout.js");
-dotenv_1.default.config();
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const { ethers } = require("ethers");
+const { sendCreditSms, extractPhoneFromUpi } = require("./sms.cjs");
+dotenv.config();
 // ─── Config ───────────────────────────────────────────────────────────────────
 const PORT = Number(process.env.PORT ?? 3001);
 const RPC_URL = process.env.RPC_URL ?? "https://testnet.evm.nodes.onflow.org";
@@ -47,8 +32,12 @@ const CONTRACT_ABI = [
         type: "function",
     },
 ];
+// ─── Pending Queue ────────────────────────────────────────────────────────────
 const pendingQueue = new Map();
-// ─── Local EIP-712 Signature Verification ─────────────────────────────────────
+// ─── Local Signature Verification ────────────────────────────────────────────
+// Must match the contract's verification:
+//   messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid))
+//   ECDSA.recover(keccak256("\x19Ethereum Signed Message:\n32" + messageHash), signature)
 async function verifySignature(payload) {
     try {
         const { parameters, contractAddress } = payload;
@@ -68,15 +57,15 @@ async function verifySignature(payload) {
                 { name: "nonce", type: "bytes32" },
             ],
         };
-        const value = {
-            from: parameters.from.toLowerCase(),
-            to: parameters.to.toLowerCase(),
+        const message = {
+            from: parameters.from,
+            to: parameters.to,
             value: BigInt(parameters.value),
             validAfter: BigInt(parameters.validAfter),
             validBefore: BigInt(parameters.validBefore),
             nonce: parameters.nonce,
         };
-        const recovered = ethers_1.ethers.verifyTypedData(domain, types, value, parameters.signature);
+        const recovered = ethers.verifyTypedData(domain, types, message, parameters.signature);
         return recovered.toLowerCase() === parameters.from.toLowerCase();
     }
     catch {
@@ -85,22 +74,15 @@ async function verifySignature(payload) {
 }
 // ─── Submit to Blockchain ─────────────────────────────────────────────────────
 async function submitToBlockchain(payload) {
-    if (!RELAYER_PRIVATE_KEY) {
+    if (!RELAYER_PRIVATE_KEY)
         throw new Error("RELAYER_PRIVATE_KEY not set in .env");
-    }
-    const provider = new ethers_1.ethers.JsonRpcProvider(RPC_URL);
-    const relayerWallet = new ethers_1.ethers.Wallet(RELAYER_PRIVATE_KEY, provider);
-    const contract = new ethers_1.ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, relayerWallet);
+    const provider = new ethers.JsonRpcProvider(RPC_URL);
+    const wallet = new ethers.Wallet(RELAYER_PRIVATE_KEY, provider);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
     const { parameters } = payload;
-    // Validate nonce is 32 bytes
-    const nonceBytes = ethers_1.ethers.getBytes(parameters.nonce);
-    if (nonceBytes.length !== 32) {
-        throw new Error(`Invalid nonce: expected 32 bytes, got ${nonceBytes.length}`);
-    }
     console.log(`[BLOCKCHAIN] Submitting transferWithAuthorization…`);
-    console.log(`  from:  ${parameters.from}`);
-    console.log(`  to:    ${parameters.to}`);
-    console.log(`  value: ${ethers_1.ethers.formatUnits(parameters.value, 18)} MESHT`);
+    console.log(`  from: ${parameters.from}  to: ${parameters.to}`);
+    console.log(`  value: ${ethers.formatUnits(parameters.value, 18)} MESHT`);
     const tx = await contract.transferWithAuthorization(parameters.from, parameters.to, parameters.value, parameters.validAfter, parameters.validBefore, parameters.nonce, parameters.signature);
     console.log(`[BLOCKCHAIN] Tx sent: ${tx.hash}`);
     const receipt = await tx.wait();
@@ -108,28 +90,20 @@ async function submitToBlockchain(payload) {
     return { txHash: tx.hash, blockNumber: receipt.blockNumber };
 }
 // ─── Express App ──────────────────────────────────────────────────────────────
-const app = (0, express_1.default)();
-app.use((0, cors_1.default)());
-app.use(express_1.default.json({ limit: "1mb" }));
-/**
- * GET /health
- * Returns relayer status and queue size.
- */
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
 app.get("/health", (_req, res) => {
     res.json({
         status: "ok",
         relayerAddress: RELAYER_PRIVATE_KEY
-            ? new ethers_1.ethers.Wallet(RELAYER_PRIVATE_KEY).address
+            ? new ethers.Wallet(RELAYER_PRIVATE_KEY).address
             : "not configured",
         queueSize: pendingQueue.size,
         network: RPC_URL,
         timestamp: Date.now(),
     });
 });
-/**
- * GET /queue
- * Returns all items in the pending queue (for debugging).
- */
 app.get("/queue", (_req, res) => {
     const items = Array.from(pendingQueue.values()).map((item) => ({
         id: item.id,
@@ -140,62 +114,33 @@ app.get("/queue", (_req, res) => {
     }));
     res.json({ count: items.length, items });
 });
-/**
- * POST /relay
- * Main endpoint — receives a Ghost Voucher payload and settles it.
- *
- * Body: TransactionPayload JSON
- * Returns: { success, txHash, blockNumber, payout }
- */
 app.post("/relay", async (req, res) => {
     const startTime = Date.now();
     try {
         const payload = req.body;
-        // ── 1. Validate structure ──────────────────────────────────────────────
-        if (payload.type !== "TRANSFER_WITH_AUTHORIZATION" ||
-            !payload.parameters ||
-            !payload.contractAddress) {
+        if (payload.type !== "TRANSFER_WITH_AUTHORIZATION" || !payload.parameters || !payload.contractAddress) {
             return res.status(400).json({ success: false, error: "Invalid payload structure" });
         }
         const { parameters } = payload;
-        // ── 2. Validate time window ────────────────────────────────────────────
         const now = Math.floor(Date.now() / 1000);
-        if (now < Number(parameters.validAfter)) {
+        if (now < Number(parameters.validAfter))
             return res.status(400).json({ success: false, error: "Voucher not yet valid" });
-        }
-        if (now > Number(parameters.validBefore)) {
+        if (now > Number(parameters.validBefore))
             return res.status(400).json({ success: false, error: "Voucher has expired" });
-        }
-        // ── 3. Local signature verification ───────────────────────────────────
         const sigValid = await verifySignature(payload);
-        if (!sigValid) {
+        if (!sigValid)
             return res.status(400).json({ success: false, error: "Invalid EIP-712 signature" });
-        }
-        console.log(`[RELAY] Signature verified ✅`);
-        // ── 4. Deduplicate by nonce ────────────────────────────────────────────
+        console.log(`[RELAY] ✅ Signature verified`);
+        // Deduplicate by nonce
         const itemId = parameters.nonce;
         if (pendingQueue.has(itemId)) {
             const existing = pendingQueue.get(itemId);
-            if (existing.status === "success") {
-                return res.json({
-                    success: true,
-                    cached: true,
-                    txHash: existing.txHash,
-                    message: "Already relayed",
-                });
-            }
+            if (existing.status === "success")
+                return res.json({ success: true, cached: true, txHash: existing.txHash });
         }
-        // ── 5. Track in pending queue ──────────────────────────────────────────
-        const pendingItem = {
-            id: itemId,
-            payload,
-            receivedAt: Date.now(),
-            status: "pending",
-        };
+        const pendingItem = { id: itemId, payload, receivedAt: Date.now(), status: "pending" };
         pendingQueue.set(itemId, pendingItem);
-        // ── 6. Submit to blockchain ────────────────────────────────────────────
-        let txHash;
-        let blockNumber;
+        let txHash, blockNumber;
         try {
             ({ txHash, blockNumber } = await submitToBlockchain(payload));
             pendingItem.status = "success";
@@ -205,76 +150,52 @@ app.post("/relay", async (req, res) => {
             pendingItem.status = "failed";
             pendingItem.error = chainErr?.message;
             pendingQueue.set(itemId, pendingItem);
-            return res.status(500).json({
-                success: false,
-                error: `Blockchain submission failed: ${chainErr?.message}`,
-            });
+            return res.status(500).json({ success: false, error: `Blockchain failed: ${chainErr?.message}` });
         }
-        // ── 7. Trigger INR payout ─────────────────────────────────────────────
-        let payoutResult = null;
-        const amountInr = (0, payout_js_1.meshtToInr)(parameters.value);
-        console.log(`[PAYOUT] Converting ${ethers_1.ethers.formatUnits(parameters.value, 18)} MESHT → ₹${amountInr}`);
-        // If the "to" address is a UPI VPA (came from UPI QR scan), pay out to it.
-        // Otherwise, attempt to pay the on-chain "to" address's registered UPI (future feature).
+        // ── SMS Notification ───────────────────────────────────────────────────────
         const upiId = payload.upiId ?? null;
         if (upiId) {
-            console.log(`[PAYOUT] Triggering ₹${amountInr} to UPI: ${upiId}`);
-            payoutResult = await (0, payout_js_1.triggerInrPayout)(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
-            pendingItem.payoutResult = payoutResult;
-            // Log transaction status from Decentro
-            if (payoutResult?.transactionStatus) {
-                console.log(`[PAYOUT] Decentro Transaction Status: ${payoutResult.transactionStatus}`);
-                // Warn if transaction is pending (not immediately settled)
-                if (payoutResult.transactionStatus === "pending") {
-                    console.warn(`[PAYOUT] ⚠️  Transaction is PENDING - settlement not immediate`);
-                }
-                else if (payoutResult.transactionStatus === "failure") {
-                    console.error(`[PAYOUT] ❌ Transaction FAILED at Decentro level`);
-                }
-                else if (payoutResult.transactionStatus === "success") {
-                    console.log(`[PAYOUT] ✅ Transaction SUCCESS at Decentro`);
-                }
+            const phoneFromUpi = extractPhoneFromUpi(upiId);
+            const merchantPhone = phoneFromUpi || payload.merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+            if (phoneFromUpi) {
+                console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
             }
-        }
-        else {
-            console.log(`[PAYOUT] No UPI ID provided — skipping INR payout (crypto-only mode)`);
+            if (merchantPhone) {
+                const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+                const amountInr = parseFloat(ethers.formatUnits(parameters.value, 18)) * 100; // Assuming 1 MESHT = ₹100
+                sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
+                    .catch((e) => console.error("[SMS] Failed:", e.message));
+            }
         }
         pendingQueue.set(itemId, pendingItem);
         const elapsed = Date.now() - startTime;
-        console.log(`[RELAY] ✅ Complete in ${elapsed}ms — TX: ${txHash}`);
+        console.log(`[RELAY] ✅ Done in ${elapsed}ms — TX: ${txHash}`);
         return res.json({
             success: true,
             transactionHash: txHash,
             blockNumber,
             explorerUrl: `https://evm-testnet.flowscan.io/tx/${txHash}`,
-            amountInr,
-            payout: payoutResult,
-            payoutStatus: payoutResult?.transactionStatus || "unknown",
             elapsed,
         });
     }
     catch (err) {
-        console.error("[RELAY] ❌ Unexpected error:", err?.message);
-        return res.status(500).json({
-            success: false,
-            error: err?.message ?? "Unknown relayer error",
-        });
+        console.error("[RELAY] ❌ Error:", err?.message);
+        return res.status(500).json({ success: false, error: err?.message ?? "Unknown error" });
     }
 });
 // ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-    console.log(`\n🚀 MeshT Relayer running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 MeshT Relayer running on http://0.0.0.0:${PORT}`);
+    console.log(`   Accessible from phone at: http://172.16.41.78:${PORT}`);
     console.log(`   Network:  ${RPC_URL}`);
     console.log(`   Contract: ${CONTRACT_ADDRESS}`);
     if (RELAYER_PRIVATE_KEY) {
-        console.log(`   Relayer:  ${new ethers_1.ethers.Wallet(RELAYER_PRIVATE_KEY).address}`);
+        console.log(`   Relayer:  ${new ethers.Wallet(RELAYER_PRIVATE_KEY).address}`);
     }
     else {
-        console.warn(`   ⚠️  RELAYER_PRIVATE_KEY not set — blockchain submission will fail`);
+        console.warn(`   ⚠️  RELAYER_PRIVATE_KEY not set`);
     }
-    console.log(`\n   Endpoints:`);
-    console.log(`     GET  http://localhost:${PORT}/health`);
-    console.log(`     POST http://localhost:${PORT}/relay`);
-    console.log(`     GET  http://localhost:${PORT}/queue\n`);
+    console.log(`\n   POST http://localhost:${PORT}/relay`);
+    console.log(`   GET  http://localhost:${PORT}/health\n`);
 });
-exports.default = app;
+module.exports = app;

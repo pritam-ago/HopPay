@@ -1,22 +1,19 @@
 /**
- * Demo Bank-Style SMS — Multi-Provider
+ * Bank-Style SMS via Twilio
  *
- * Provider priority (first one with credentials wins):
- *   1. Twilio  — free $15 trial, works on Indian numbers, no recharge needed
- *   2. Fast2SMS — requires ₹100 wallet recharge before use
- *
- * Set credentials in relayer/.env
+ * Set credentials in relayer/.env:
+ *   TWILIO_ACCOUNT_SID
+ *   TWILIO_AUTH_TOKEN
+ *   TWILIO_FROM_NUMBER
  */
 const axios = require("axios");
 const dotenv = require("dotenv");
 dotenv.config();
 
-// ── Provider credentials ─────────────────────────────────────────────────────
+// ── Twilio credentials ───────────────────────────────────────────────────────
 const TWILIO_ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID  || "";
 const TWILIO_AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN   || "";
 const TWILIO_FROM_NUMBER  = process.env.TWILIO_FROM_NUMBER  || ""; // e.g. +12345678900
-
-const FAST2SMS_API_KEY    = process.env.FAST2SMS_API_KEY    || "";
 const DEMO_MERCHANT_PHONE = process.env.DEMO_MERCHANT_PHONE || "";
 
 /**
@@ -38,7 +35,7 @@ function buildBankMessage(amountInr, txRef) {
   return `HopPay: You received Rs.${amountInr.toFixed(2)}. Ref ${shortRef}. Thank you!`;
 }
 
-// ── Provider 1: Twilio ────────────────────────────────────────────────────────
+// ── Twilio SMS Provider ───────────────────────────────────────────────────────
 
 async function sendViaTwilio(phoneE164, message) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
@@ -73,53 +70,10 @@ async function sendViaTwilio(phoneE164, message) {
   }
 }
 
-// ── Provider 2: Fast2SMS ──────────────────────────────────────────────────────
-// NOTE: Requires ₹100 wallet recharge at fast2sms.com before API access is granted.
-
-async function sendViaFast2Sms(phone10, message) {
-  if (!FAST2SMS_API_KEY) {
-    return null; // not configured — skip
-  }
-
-  console.log(`[SMS] 🟡 Trying Fast2SMS → +91${phone10}`);
-  console.log(`[SMS] API Key (first 10 chars): ${FAST2SMS_API_KEY.slice(0, 10)}...`);
-
-  try {
-    // Fast2SMS: ALL params go in query string (including authorization) — header auth returns 401
-    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${encodeURIComponent(FAST2SMS_API_KEY)}&sender_id=FSTSMS&message=${encodeURIComponent(message)}&language=english&route=q&numbers=${phone10}`;
-
-    console.log(`[SMS] Request URL: ${url.slice(0, 80)}...`);
-
-    const res = await axios.get(url);
-
-    console.log(`[SMS] Fast2SMS status: ${res.status}`);
-    console.log("[SMS] Fast2SMS response:", JSON.stringify(res.data));
-
-    if (res.data?.return === true) {
-      console.log(`[SMS] ✅ Fast2SMS sent! Request ID: ${res.data.request_id}`);
-      return { success: true, provider: "fast2sms", requestId: res.data.request_id, message };
-    }
-
-    const errMsg = Array.isArray(res.data?.message)
-      ? res.data.message.join(", ")
-      : res.data?.message || "Unknown error";
-    console.error("[SMS] ❌ Fast2SMS rejected:", errMsg);
-    return { success: false, provider: "fast2sms", error: errMsg };
-  } catch (err) {
-    console.error("[SMS] ❌ Fast2SMS HTTP status:", err?.response?.status);
-    console.error("[SMS] ❌ Fast2SMS response body:", JSON.stringify(err?.response?.data));
-    const errMsg =
-      err?.response?.data?.message || err?.message || "Fast2SMS error";
-    console.error("[SMS] ❌ Fast2SMS error:", errMsg);
-    return { success: false, provider: "fast2sms", error: errMsg };
-  }
-}
-
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 /**
- * Send a bank-style credit SMS to the merchant.
- * Tries Twilio first, then Fast2SMS as fallback.
+ * Send a bank-style credit SMS to the merchant via Twilio.
  *
  * @param {string|null} phoneNumber  10-digit Indian mobile (no +91)
  * @param {number}      amountInr    INR amount credited
@@ -139,26 +93,16 @@ async function sendCreditSms(phoneNumber, amountInr, txRef, merchantName = "Merc
 
   console.log(`[SMS] 📱 Sending to ${phoneE164}: "${message}"`);
 
-  // ── Try Twilio first (recommended) ─────────────────────────────────────────
+  // ── Send via Twilio ────────────────────────────────────────────────────────
   if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER) {
     const result = await sendViaTwilio(phoneE164, message);
     if (result?.success) return result;
-    console.log("[SMS] Twilio failed — falling back to Fast2SMS");
   }
 
-  // ── Fallback: Fast2SMS ──────────────────────────────────────────────────────
-  if (FAST2SMS_API_KEY) {
-    const result = await sendViaFast2Sms(phone10, message);
-    if (result?.success) return result;
-  }
-
-  // ── No provider worked ──────────────────────────────────────────────────────
-  console.error("[SMS] ❌ All SMS providers failed or unconfigured.");
-  if (!TWILIO_ACCOUNT_SID && !FAST2SMS_API_KEY) {
-    console.error("[SMS]    → Set TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER in .env");
-    console.error("[SMS]    → OR recharge Fast2SMS wallet (₹100+) and set FAST2SMS_API_KEY");
-  }
-  return { success: false, reason: "All providers failed" };
+  // ── No provider configured ─────────────────────────────────────────────────
+  console.error("[SMS] ❌ Twilio not configured or SMS failed.");
+  console.error("[SMS]    → Set TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER in .env");
+  return { success: false, reason: "SMS provider not configured or failed" };
 }
 
 module.exports = { sendCreditSms, extractPhoneFromUpi };

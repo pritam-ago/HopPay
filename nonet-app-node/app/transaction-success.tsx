@@ -49,12 +49,30 @@ export default function TransactionSuccessPage(): React.JSX.Element {
     stopBroadcasting();
   }, [stopBroadcasting]);
 
+  // ── Extract phone number from UPI ID ────────────────────────────────────
+  const extractPhoneFromUpi = (upiIdString: string): string | null => {
+    // Pattern: UPI IDs like "9876543210@paytm" start with 10-digit Indian phone number
+    const match = upiIdString.match(/^([6-9]\d{9})@/);
+    return match ? match[1] : null;
+  };
+
   // ── Trigger SMS on page load ──────────────────────────────────────────────
   useEffect(() => {
     const triggerSms = async () => {
-      if (!upiId && !merchantPhone) {
-        console.log("[SMS] No UPI ID or phone — skipping SMS");
-        return;
+      // Extract phone from UPI ID if available
+      const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
+      const finalPhone = phoneFromUpi || merchantPhone;
+
+      if (phoneFromUpi) {
+        console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      }
+
+      // Always send SMS - the backend will use DEMO_MERCHANT_PHONE as fallback
+      console.log("[SMS] 📱 Triggering SMS notification...");
+      if (finalPhone) {
+        console.log(`[SMS] Using phone: ${finalPhone}`);
+      } else {
+        console.log("[SMS] No phone provided - backend will use DEMO_MERCHANT_PHONE fallback");
       }
 
       setSmsStatus("sending");
@@ -67,7 +85,7 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             upiId: upiId || undefined,
-            merchantPhone: merchantPhone || undefined,
+            merchantPhone: finalPhone || undefined, // Send extracted phone or merchantPhone
             amount: amount || "0",
             txHash: txHash || "",
             merchantName: merchantName || "Merchant",

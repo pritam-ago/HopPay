@@ -14,7 +14,7 @@ export const CONTRACT_CONFIG = {
   // "localhost" on the phone means the phone itself, not your Mac.
   // Phone and Mac must both be on the same WiFi network.
   // Current Mac LAN IP: 172.16.41.80 (run `ifconfig | grep "inet "` to update if it changes)
-  RELAYER_URL: "http://172.16.41.80:3001/relay",
+  RELAYER_URL: "http://172.16.41.78:3001/relay",
 };
 
 // Contract ABI for transferWithAuthorization function and balanceOf

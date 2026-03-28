@@ -5,7 +5,6 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
-const { triggerInrPayout, meshtToInr } = require("./payout.cjs");
 const { sendCreditSms, extractPhoneFromUpi } = require("./sms.cjs");
 
 dotenv.config();
@@ -164,20 +163,26 @@ app.post("/send-sms", async (req, res) => {
     console.log(`[SMS-ENDPOINT] Request: upiId=${upiId} phone=${merchantPhone} amount=${amount} txHash=${txHash}`);
 
     // Determine phone number: from UPI ID, explicit phone, or .env fallback
-    const phoneFromUpi = extractPhoneFromUpi(upiId);
+    const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
     const phone = phoneFromUpi || merchantPhone || process.env.DEMO_MERCHANT_PHONE;
 
-    if (!phone) {
-      return res.status(400).json({ success: false, error: "No phone number available" });
+    if (phoneFromUpi) {
+      console.log(`[SMS-ENDPOINT] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+    } else if (merchantPhone) {
+      console.log(`[SMS-ENDPOINT] 📱 Using provided merchant phone: ${merchantPhone}`);
+    } else if (process.env.DEMO_MERCHANT_PHONE) {
+      console.log(`[SMS-ENDPOINT] 📱 Using DEMO_MERCHANT_PHONE from environment: ${process.env.DEMO_MERCHANT_PHONE}`);
     }
 
-    if (phoneFromUpi) {
-      console.log(`[SMS-ENDPOINT] 📲 Extracted phone from UPI: ${phoneFromUpi}`);
+    if (!phone) {
+      console.warn("[SMS-ENDPOINT] ⚠️ No phone number available (no UPI ID, merchantPhone, or DEMO_MERCHANT_PHONE)");
+      return res.status(400).json({ success: false, error: "No phone number available - set DEMO_MERCHANT_PHONE in .env" });
     }
 
     const amountNum = parseFloat(amount) || 0;
     const shortRef = txHash ? `MeshT${txHash.slice(2, 8).toUpperCase()}` : `MeshT${Date.now().toString(36).toUpperCase()}`;
 
+    console.log(`[SMS-ENDPOINT] 📤 Sending SMS to ${phone} for amount ₹${amountNum} (ref: ${shortRef})`);
     const smsResult = await sendCreditSms(phone, amountNum, shortRef, merchantName || "Merchant");
     console.log(`[SMS-ENDPOINT] Result:`, smsResult);
 
@@ -237,41 +242,27 @@ app.post("/relay", async (req, res) => {
       return res.status(500).json({ success: false, error: `Blockchain failed: ${chainErr?.message}` });
     }
 
-    // INR payout
-    let payoutResult = null;
-    const amountInr = meshtToInr(parameters.value);
+    // ── SMS Notification ───────────────────────────────────────────────────────
     const upiId = payload.upiId ?? null;
+    const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
+    const merchantPhone = phoneFromUpi || payload.merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+    
+    if (phoneFromUpi) {
+      console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+    } else if (payload.merchantPhone) {
+      console.log(`[SMS] 📱 Using provided merchant phone: ${payload.merchantPhone}`);
+    } else if (process.env.DEMO_MERCHANT_PHONE) {
+      console.log(`[SMS] 📱 Using DEMO_MERCHANT_PHONE from environment: ${process.env.DEMO_MERCHANT_PHONE}`);
+    }
 
-    if (upiId) {
-      console.log(`[PAYOUT] ₹${amountInr} → ${upiId}`);
-      payoutResult = await triggerInrPayout(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
-      pendingItem.payoutResult = payoutResult;
-      
-      if (payoutResult?.transactionStatus) {
-        console.log(`[PAYOUT] Decentro Status: ${payoutResult.transactionStatus}`);
-        if (payoutResult.transactionStatus === "pending") {
-          console.warn(`[PAYOUT] ⚠️  Transaction is PENDING`);
-        } else if (payoutResult.transactionStatus === "failure") {
-          console.error(`[PAYOUT] ❌ Transaction FAILED`);
-        }
-      }
-
-      // 🎯 Demo effect: send a real bank-style credit SMS to the merchant's phone
-      // Priority: (1) phone extracted from UPI ID, (2) phone from app payload, (3) .env fallback
-      const phoneFromUpi = extractPhoneFromUpi(upiId);
-      const merchantPhone = phoneFromUpi || payload.merchantPhone || process.env.DEMO_MERCHANT_PHONE;
-      
-      if (phoneFromUpi) {
-        console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
-      }
-
-      if (merchantPhone) {
-        const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
-        sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
-          .catch(e => console.error("[SMS] Failed:", e.message));
-      }
+    if (merchantPhone) {
+      const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+      const amountInr = parseFloat(ethers.formatUnits(parameters.value, 18)) * 100; // Assuming 1 MESHT = ₹100
+      console.log(`[SMS] 📤 Sending to ${merchantPhone} for ₹${amountInr} (ref: ${shortRef})`);
+      sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
+        .catch(e => console.error("[SMS] ❌ Failed:", e.message));
     } else {
-      console.log(`[PAYOUT] No UPI ID provided — skipping INR payout`);
+      console.warn("[SMS] ⚠️ No phone number available - skipping SMS (set DEMO_MERCHANT_PHONE in .env)");
     }
 
     pendingQueue.set(itemId, pendingItem);
@@ -283,9 +274,6 @@ app.post("/relay", async (req, res) => {
       transactionHash: txHash,
       blockNumber,
       explorerUrl: `https://evm-testnet.flowscan.io/tx/${txHash}`,
-      amountInr,
-      payout: payoutResult,
-      payoutStatus: payoutResult?.transactionStatus || "unknown",
       elapsed,
     });
   } catch (err) {

@@ -1,0 +1,43 @@
+
+> mesht-relayer@1.0.0 dev
+> node index.cjs
+
+
+🚀 MeshT Relayer running on http://0.0.0.0:3001
+   Accessible from phone at: http://172.16.41.78:3001
+   Network:  https://testnet.evm.nodes.onflow.org
+   Contract: 0xd1Eb9CeAA265D4d2f13E4dDD815AA5fe7212fdA8
+   Relayer:  0x35fD948834c4734583d4EeF8663c25Ceb25fB1dd
+
+   POST http://172.16.41.78:3001/relay
+   GET  http://172.16.41.78:3001/health
+
+[REQUEST] GET /health from 127.0.0.1 | body keys: none
+[REQUEST] POST /send-sms from 127.0.0.1 | body keys: upiId, amount, txHash, merchantName
+[SMS-ENDPOINT] Request: upiId=9344790864@paytm phone=undefined amount=10 txHash=0xabc123def456
+[SMS-ENDPOINT] 📲 Extracted phone from UPI: 9344790864
+[SMS] 📱 Sending to +919344790864: "HopPay: You received Rs.10.00. Ref MESHTABC12. Thank you!"
+[SMS] 🟣 Trying Twilio → +919344790864
+[SMS] ✅ Twilio sent! SID: SM42e7b1fdb9361dcb22a34145fce4a7d6
+[SMS-ENDPOINT] Result: {
+  success: true,
+  provider: 'twilio',
+  sid: 'SM42e7b1fdb9361dcb22a34145fce4a7d6',
+  message: 'HopPay: You received Rs.10.00. Ref MESHTABC12. Thank you!'
+}
+[REQUEST] GET / from 172.16.41.78 | body keys: none
+[REQUEST] POST /send-sms from 127.0.0.1 | body keys: upiId, amount, txHash, merchantName
+[SMS-ENDPOINT] Request: upiId=8220811320@paytm phone=undefined amount=50 txHash=0xabc123def456
+[SMS-ENDPOINT] 📲 Extracted phone from UPI: 8220811320
+[SMS] 📱 Sending to +918220811320: "HopPay: You received Rs.50.00. Ref MESHTABC12. Thank you!"
+[SMS] 🟣 Trying Twilio → +918220811320
+[SMS] ❌ Twilio failed: Authenticate
+[SMS] Twilio failed — falling back to Fast2SMS
+[SMS] 🟡 Trying Fast2SMS → +918220811320
+[SMS] API Key (first 10 chars): XWGShiHgFJ...
+[SMS] Request URL: https://www.fast2sms.com/dev/bulkV2?authorization=XWGShiHgFJ1CmjRsTUAtr3BaZwoPlY...
+[SMS] ❌ Fast2SMS HTTP status: 401
+[SMS] ❌ Fast2SMS response body: {"return":false,"status_code":415,"message":"Account Disabled"}
+[SMS] ❌ Fast2SMS error: Account Disabled
+[SMS] ❌ All SMS providers failed or unconfigured.
+[SMS-ENDPOINT] Result: { success: false, reason: 'All providers failed' }
