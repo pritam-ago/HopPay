@@ -96,8 +96,8 @@ export const encodeMessageToChunks = (
   options: { id?: number; isAck?: boolean } = {}
 ): Uint8Array[] => {
   const HEADER_SIZE = 3;
-  const DATA_PER_CHUNK = 6;
-  const MAX_PAYLOAD_SIZE = HEADER_SIZE + DATA_PER_CHUNK;
+  const DATA_PER_CHUNK = 24; // Increased from 6 to 24 bytes for better performance (4x faster)
+  const MAX_PAYLOAD_SIZE = HEADER_SIZE + DATA_PER_CHUNK; // 27 bytes total (under BLE 31-byte limit)
 
   const encoder = new TextEncoder();
   const binaryArray = encoder.encode(message);

@@ -701,7 +701,7 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
 
       broadcastCursorRef.current = { queueIndex, chunkIndex };
       forceUpdate();
-    }, 100); // 100ms per chunk: 94 chunks = ~9.4s per full cycle (was 250ms = 23.5s)
+    }, 50); // 50ms per chunk: 24 chunks = ~1.2s per cycle (optimized from 100ms = 2.4s)
   };
 
   // Stop the master broadcast loop
