@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, View, StyleSheet, ScrollView, TouchableOpacity, TextInput, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { useBle } from '@/contexts/BleContext';
 import { MessageState } from '@/utils/bleUtils';
 import { router } from 'expo-router';
@@ -60,7 +61,7 @@ const MeshScreen = () => {
     }
     
     return (
-      <View key={`msg-${state.id}`} style={[styles.messageCard, transactionStatus?.success === false && styles.messageCardError, transactionStatus?.success === true && styles.messageCardSuccess]}>
+      <BlurView tint="dark" intensity={70} key={`msg-${state.id}`} style={[styles.messageCard, transactionStatus?.success === false && styles.messageCardError, transactionStatus?.success === true && styles.messageCardSuccess]}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{state.isAck ? 'Response' : 'Request'}</Text>
           {transactionStatus && (
@@ -109,7 +110,7 @@ const MeshScreen = () => {
             <Text style={styles.progressLabel}>{progress.percent}%</Text>
           </View>
           <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${progress.percent}%`, backgroundColor: transactionStatus?.success === false ? '#EF4444' : '#10B981' }]} />
+            <View style={[styles.progressBarFill, { width: `${progress.percent}%`, backgroundColor: transactionStatus?.success === false ? '#EF4444' : '#FBBF24' }]} />
           </View>
           <View style={styles.chunkGrid}>
             {Array.from({ length: state.totalChunks }, (_, i) => {
@@ -123,7 +124,7 @@ const MeshScreen = () => {
             })}
           </View>
         </View>
-      </View>
+      </BlurView>
     );
   };
 
@@ -132,20 +133,23 @@ const MeshScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.bgGlowTop} />
+      <View style={styles.bgGlowBottom} />
+
       <View style={styles.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.headerTitle}>MESH</Text>
         </View>
-        <View style={styles.networkStatusTag}>
-          <Feather name={hasInternet ? "wifi" : "radio"} size={14} color={hasInternet ? "#10B981" : "#3B82F6"} style={{ marginRight: 6 }} />
-          <Text style={[styles.networkStatusText, { color: hasInternet ? '#10B981' : '#3B82F6' }]}>{hasInternet ? 'ONLINE' : 'MESH'}</Text>
-        </View>
+        <BlurView tint="dark" intensity={50} style={styles.networkStatusTag}>
+          <Feather name={hasInternet ? "wifi" : "radio"} size={14} color="#FBBF24" style={{ marginRight: 6 }} />
+          <Text style={[styles.networkStatusText, { color: '#FBBF24' }]}>{hasInternet ? 'ONLINE' : 'MESH'}</Text>
+        </BlurView>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         
         {/* Broadcaster Section */}
-        <View style={styles.glassSection}>
+        <BlurView tint="dark" intensity={60} style={styles.glassSection}>
           <View style={styles.broadcasterHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.broadcasterSubtitle}>Currently broadcasting:</Text>
@@ -179,7 +183,7 @@ const MeshScreen = () => {
           >
             <Text style={styles.buttonText}>Broadcast Message</Text>
           </TouchableOpacity>
-        </View>
+        </BlurView>
 
         {/* Receiver Section */}
         <View style={styles.sectionHeaderRow}>
@@ -191,10 +195,10 @@ const MeshScreen = () => {
 
         <View style={styles.messagesContainer}>
           {allMessages.length === 0 ? (
-            <View style={styles.emptyState}>
+            <BlurView tint="dark" intensity={40} style={styles.emptyState}>
               <Feather name="activity" size={32} color="#4B5563" style={{ marginBottom: 12 }} />
               <Text style={styles.emptyText}>Listening for signals...</Text>
-            </View>
+            </BlurView>
           ) : (
             allMessages.map(msg => renderReceivedMessageCard(msg))
           )}
@@ -209,7 +213,25 @@ const MeshScreen = () => {
 const styles = StyleSheet.create({
   safeContainer: {
     flex: 1,
-    backgroundColor: '#0A120D',
+    backgroundColor: '#05080A',
+  },
+  bgGlowTop: {
+    position: 'absolute',
+    top: -150, left: -50,
+    width: 350, height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(251, 191, 36, 0.4)',
+    transform: [{ scaleX: 1.5 }],
+    opacity: 0.6,
+  },
+  bgGlowBottom: {
+    position: 'absolute',
+    bottom: -100, right: -50,
+    width: 300, height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    transform: [{ scaleY: 1.2 }],
+    opacity: 0.6,
   },
   header: {
     flexDirection: 'row',
@@ -228,12 +250,12 @@ const styles = StyleSheet.create({
   networkStatusTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
   },
   networkStatusText: {
     fontSize: 11,
@@ -245,12 +267,16 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   glassSection: {
-    backgroundColor: 'rgba(28, 30, 31, 1)',
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 24,
+    padding: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.15)',
     marginBottom: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
   },
   broadcasterHeader: {
     flexDirection: 'row',
@@ -292,7 +318,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   button: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#FBBF24',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -339,12 +365,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   messageCard: {
-    backgroundColor: 'rgba(28, 30, 31, 0.9)',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    marginBottom: 12,
+    borderColor: 'rgba(255,255,255,0.15)',
+    marginBottom: 16,
+    overflow: 'hidden',
   },
   messageCardError: {
     borderLeftWidth: 4,
@@ -352,7 +378,7 @@ const styles = StyleSheet.create({
   },
   messageCardSuccess: {
     borderLeftWidth: 4,
-    borderLeftColor: '#10B981',
+    borderLeftColor: '#FBBF24',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -370,7 +396,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
-  badgeSuccess: { backgroundColor: 'rgba(16, 185, 129, 0.2)' },
+  badgeSuccess: { backgroundColor: 'rgba(251, 191, 36, 0.2)' },
   badgeError: { backgroundColor: 'rgba(239, 68, 68, 0.2)' },
   badgeText: { fontSize: 11, fontWeight: '700', color: '#FFF' },
   cardBody: {
@@ -429,8 +455,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chunkDotHave: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    borderColor: 'rgba(251, 191, 36, 0.3)',
   },
   chunkDotMissing: {
     backgroundColor: 'rgba(245, 158, 11, 0.15)',

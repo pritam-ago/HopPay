@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
+import { BlurView } from "expo-blur";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useWallet } from "@/contexts/WalletContext";
 import { useBle } from "@/contexts/BleContext";
@@ -156,6 +157,10 @@ export default function ReceiveScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Liquid Glass Background Orbs */}
+      <View style={styles.bgGlowTop} />
+      <View style={styles.bgGlowBottom} />
+      
       <ScrollView showsVerticalScrollIndicator={false}>
         
         {/* Header */}
@@ -163,25 +168,25 @@ export default function ReceiveScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={styles.headerTitle}>RECEIVE</Text>
           </View>
-          <View style={[styles.statusBadge, hasInternet ? styles.badgeOnline : styles.badgeOffline]}>
-            <Text style={[styles.statusBadgeText, { color: hasInternet ? '#10B981' : '#F59E0B' }]}>
+          <BlurView tint="dark" intensity={50} style={[styles.statusBadge, hasInternet ? styles.badgeOnline : styles.badgeOffline]}>
+            <Text style={[styles.statusBadgeText, { color: hasInternet ? '#FBBF24' : '#F59E0B' }]}>
               {hasInternet ? "🌐 ONLINE" : "📡 MESH MODE"}
             </Text>
-          </View>
+          </BlurView>
         </View>
 
-        <View style={styles.glassContainer}>
+        <BlurView tint="dark" intensity={60} style={styles.glassContainer}>
           <Text style={styles.sectionLabel}>YOUR PAYMENT QR</Text>
-          <View style={styles.qrWrapper}>
-            <QRCode value={userWalletAddress} size={180} color="#0A120D" backgroundColor="#FFFFFF" />
-          </View>
-          <View style={styles.addressBox}>
+          <BlurView tint="light" intensity={30} style={styles.qrWrapper}>
+            <QRCode value={userWalletAddress} size={180} color="#000000" backgroundColor="transparent" />
+          </BlurView>
+          <BlurView tint="dark" intensity={50} style={styles.addressBox}>
             <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">{userWalletAddress}</Text>
-          </View>
-        </View>
+          </BlurView>
+        </BlurView>
 
-        <View style={styles.listeningSection}>
-          <Animated.View style={[styles.pulseDot, { transform: [{ scale: pulseAnim }], backgroundColor: isListening ? '#10B981' : '#4B5563' }]} />
+        <BlurView tint="dark" intensity={50} style={styles.listeningSection}>
+          <Animated.View style={[styles.pulseDot, { transform: [{ scale: pulseAnim }], backgroundColor: isListening ? '#FBBF24' : '#4B5563' }]} />
           <Text style={styles.listeningText}>
             {isListening ? "Listening for BLE payments…" : "Paused"}
           </Text>
@@ -193,13 +198,13 @@ export default function ReceiveScreen() {
               {isListening ? "PAUSE" : "RESUME"}
             </Text>
           </TouchableOpacity>
-        </View>
+        </BlurView>
 
         {latestVoucher && (
-          <View style={[styles.bannerCard, latestVoucher.verification.valid ? styles.bannerCardSuccess : styles.bannerCardError]}>
+          <BlurView tint="dark" intensity={80} style={[styles.bannerCard, latestVoucher.verification.valid ? styles.bannerCardSuccess : styles.bannerCardError]}>
             <View style={styles.bannerRow}>
               <View style={styles.bannerIconWrapper}>
-                <Feather name={latestVoucher.verification.valid ? "check-circle" : "x-circle"} size={28} color={latestVoucher.verification.valid ? "#10B981" : "#EF4444"} />
+                <Feather name={latestVoucher.verification.valid ? "check-circle" : "x-circle"} size={28} color={latestVoucher.verification.valid ? "#FBBF24" : "#EF4444"} />
               </View>
               <View style={styles.bannerDetails}>
                 <Text style={styles.bannerTitle}>
@@ -210,7 +215,7 @@ export default function ReceiveScreen() {
                     <Text style={styles.bannerAmount}>{latestVoucher.verification.amountFormatted} MESHT</Text>
                     <Text style={styles.bannerFrom}>From: {latestVoucher.verification.from?.slice(0, 8)}...{latestVoucher.verification.from?.slice(-6)}</Text>
                     {latestVoucher.relayed ? (
-                      <View style={styles.tagRow}><Feather name="check" size={14} color="#10B981" /><Text style={styles.settledTag}> Settled on-chain</Text></View>
+                      <View style={styles.tagRow}><Feather name="check" size={14} color="#FBBF24" /><Text style={styles.settledTag}> Settled on-chain</Text></View>
                     ) : (
                       <View style={styles.tagRow}><Feather name="clock" size={14} color="#F59E0B" /><Text style={styles.pendingTag}> Pending relay{hasInternet ? " (relaying…)" : " (awaiting signal)"}</Text></View>
                     )}
@@ -220,7 +225,7 @@ export default function ReceiveScreen() {
                 )}
               </View>
             </View>
-          </View>
+          </BlurView>
         )}
 
         <View style={styles.historySection}>
@@ -234,13 +239,13 @@ export default function ReceiveScreen() {
           </View>
           
           {vouchers.length === 0 && !latestVoucher ? (
-            <View style={styles.emptyHistoryBox}>
+            <BlurView tint="dark" intensity={40} style={styles.emptyHistoryBox}>
               <Feather name="inbox" size={32} color="#4B5563" style={{ marginBottom: 12 }} />
               <Text style={styles.emptyHistoryText}>No vouchers received yet.{"\n"}Ask a customer to scan your QR.</Text>
-            </View>
+            </BlurView>
           ) : (
             vouchers.map((v) => (
-              <View key={v.id} style={[styles.historyItem, v.verification.valid ? styles.hiValid : styles.hiInvalid]}>
+              <BlurView tint="dark" intensity={40} key={v.id} style={[styles.historyItem, v.verification.valid ? styles.hiValid : styles.hiInvalid]}>
                 <View style={styles.historyItemLeft}>
                   <Text style={[styles.historyAmount, !v.verification.valid && { color: '#EF4444' }]}>
                     {v.verification.valid ? `${v.verification.amountFormatted} MESHT` : "INVALID"}
@@ -253,7 +258,7 @@ export default function ReceiveScreen() {
                     {v.relayed ? "SETTLED" : v.verification.valid ? "PENDING" : "INVALID"}
                   </Text>
                 </View>
-              </View>
+              </BlurView>
             ))
           )}
         </View>
@@ -266,7 +271,25 @@ export default function ReceiveScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A120D',
+    backgroundColor: '#05080A',
+  },
+  bgGlowTop: {
+    position: 'absolute',
+    top: -150, left: -50,
+    width: 350, height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(251, 191, 36, 0.4)',
+    transform: [{ scaleX: 1.5 }],
+    opacity: 0.6,
+  },
+  bgGlowBottom: {
+    position: 'absolute',
+    bottom: -100, right: -50,
+    width: 300, height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    transform: [{ scaleY: 1.2 }],
+    opacity: 0.6,
   },
   header: {
     flexDirection: 'row',
@@ -288,7 +311,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
-  badgeOnline: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
+  badgeOnline: { backgroundColor: 'rgba(251, 191, 36, 0.1)', borderColor: 'rgba(251, 191, 36, 0.3)' },
   badgeOffline: { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' },
   statusBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   sectionLabel: {
@@ -301,7 +324,7 @@ const styles = StyleSheet.create({
   glassContainer: {
     marginHorizontal: 20,
     padding: 24,
-    backgroundColor: 'rgba(28, 30, 31, 1)',
+    backgroundColor: 'rgba(20, 20, 20, 1)',
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
@@ -338,7 +361,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 20,
     padding: 16,
-    backgroundColor: 'rgba(28, 30, 31, 1)',
+    backgroundColor: 'rgba(20, 20, 20, 1)',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
@@ -368,7 +391,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
   },
   toggleButtonText: {
-    color: '#60A5FA',
+    color: '#FBBF24',
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
@@ -381,8 +404,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   bannerCardSuccess: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    borderColor: 'rgba(251, 191, 36, 0.3)',
   },
   bannerCardError: {
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -407,7 +430,7 @@ const styles = StyleSheet.create({
   bannerAmount: {
     fontSize: 24,
     fontWeight: '900',
-    color: '#10B981',
+    color: '#FBBF24',
     marginBottom: 4,
   },
   bannerFrom: {
@@ -424,7 +447,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  settledTag: { fontSize: 13, fontWeight: '700', color: '#10B981' },
+  settledTag: { fontSize: 13, fontWeight: '700', color: '#FBBF24' },
   pendingTag: { fontSize: 13, fontWeight: '700', color: '#F59E0B' },
   historySection: {
     paddingHorizontal: 20,
@@ -469,11 +492,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  hiPillSettled: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
+  hiPillSettled: { backgroundColor: 'rgba(251, 191, 36, 0.1)', borderColor: 'rgba(251, 191, 36, 0.3)' },
   hiPillPending: { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' },
   hiPillInvalid: { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' },
   hiStatusText: { fontSize: 11, fontWeight: '800' },
-  hiTextSettled: { color: '#10B981' },
+  hiTextSettled: { color: '#FBBF24' },
   hiTextPending: { color: '#F59E0B' },
   hiTextInvalid: { color: '#EF4444' },
   emptyCenter: {

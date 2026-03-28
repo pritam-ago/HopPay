@@ -62,7 +62,7 @@ export default function TransactionSuccessPage(): React.JSX.Element {
         {/* Success Header */}
         <View style={styles.glassCardTop}>
           <View style={styles.successIconBubble}>
-            <Feather name="check" size={48} color="#10B981" />
+            <Feather name="check" size={48} color="#FBBF24" />
           </View>
           <Text style={styles.successTitle}>Transaction Sent!</Text>
           <Text style={styles.amountDisplay}>{amount} {currency}</Text>
@@ -76,7 +76,7 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           <View style={[styles.glassCard, smsStatus === "sent" ? styles.smsBorderSuccess : styles.smsBorderFailed]}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
                <View style={styles.smsIconWrapper}>
-                 <Feather name={smsStatus === "sending" ? "loader" : smsStatus === "sent" ? "message-square" : "alert-circle"} size={24} color={smsStatus === "sent" ? "#10B981" : "#EF4444"} />
+                 <Feather name={smsStatus === "sending" ? "loader" : smsStatus === "sent" ? "message-square" : "alert-circle"} size={24} color={smsStatus === "sent" ? "#FBBF24" : "#EF4444"} />
                </View>
                <View style={styles.smsTextWrapper}>
                  <Text style={styles.smsTitle}>
@@ -95,9 +95,9 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           <Text style={styles.sectionLabel}>TRANSACTION QR</Text>
           <View style={styles.qrContainer}>
             {txHash ? (
-              <QRCode value={txHash} size={180} backgroundColor="#FFFFFF" color="#0A120D" />
+              <QRCode value={txHash} size={180} backgroundColor="#FFFFFF" color="#000000" />
             ) : (
-              <View style={styles.qrPlaceholder}><ActivityIndicator color="#10B981"/></View>
+              <View style={styles.qrPlaceholder}><ActivityIndicator color="#FBBF24"/></View>
             )}
           </View>
         </View>
@@ -157,7 +157,7 @@ export default function TransactionSuccessPage(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A120D',
+    backgroundColor: '#000000',
   },
   headerRow: {
     alignItems: 'center',
@@ -176,24 +176,24 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   glassCardTop: {
-    backgroundColor: 'rgba(28, 30, 31, 1)',
+    backgroundColor: 'rgba(20, 20, 20, 1)',
     borderRadius: 24,
     padding: 32,
     alignItems: 'center',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.2)',
+    borderColor: 'rgba(251, 191, 36, 0.2)',
   },
   successIconBubble: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderColor: 'rgba(251, 191, 36, 0.3)',
   },
   successTitle: {
     fontSize: 20,
@@ -204,7 +204,7 @@ const styles = StyleSheet.create({
   amountDisplay: {
     fontSize: 32,
     fontWeight: '900',
-    color: '#10B981',
+    color: '#FBBF24',
     marginBottom: 12,
   },
   chainPill: {
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
     color: '#D1D5DB',
   },
   glassCard: {
-    backgroundColor: 'rgba(28, 30, 31, 1)',
+    backgroundColor: 'rgba(20, 20, 20, 1)',
     borderRadius: 20,
     padding: 20,
     marginBottom: 20,
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   },
   smsBorderSuccess: {
     borderLeftWidth: 4,
-    borderLeftColor: '#10B981',
+    borderLeftColor: '#FBBF24',
   },
   smsBorderFailed: {
     borderLeftWidth: 4,
@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   primaryButton: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#FBBF24',
     paddingVertical: 16,
     borderRadius: 16,
     alignItems: 'center',

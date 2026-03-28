@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Feather } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { Platform, View, StyleSheet } from 'react-native';
 
 export default function TabLayout() {
@@ -14,17 +15,17 @@ export default function TabLayout() {
           left: 20,
           right: 20,
           elevation: 0,
-          backgroundColor: Platform.OS === 'ios' ? 'rgba(15, 20, 18, 0.95)' : 'rgba(15, 20, 18, 0.98)',
+          backgroundColor: 'transparent',
           borderRadius: 32,
           height: 64,
           borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.08)',
+          borderColor: 'rgba(255,255,255,0.15)',
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 10 },
           shadowOpacity: 0.5,
           shadowRadius: 20,
         },
-        tabBarActiveTintColor: '#10B981',
+        tabBarActiveTintColor: '#FBBF24',
         tabBarInactiveTintColor: '#6B7280',
         tabBarShowLabel: true,
         tabBarLabelStyle: {
@@ -36,7 +37,7 @@ export default function TabLayout() {
           paddingVertical: 8,
         },
         tabBarBackground: () => (
-          <View style={{ flex: 1, backgroundColor: 'rgba(15, 20, 18, 0.95)', borderRadius: 32 }} />
+          <BlurView tint="dark" intensity={80} style={{ flex: 1, borderRadius: 32, overflow: 'hidden' }} />
         ),
       }}>
       <Tabs.Screen
@@ -73,7 +74,7 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   iconActive: {
-    textShadowColor: 'rgba(16, 185, 129, 0.5)',
+    textShadowColor: 'rgba(251, 191, 36, 0.5)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 10,
   }

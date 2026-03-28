@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from 'react-native-qrcode-svg';
+import { BlurView } from 'expo-blur';
 import { useWallet } from '@/contexts/WalletContext';
 import { router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -35,21 +36,24 @@ export default function Show() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.bgGlowTop} />
+      <View style={styles.bgGlowBottom} />
+
       <View style={styles.header}>
         <Text style={styles.headerTitle}>WALLET</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.qrContainer}>
+        <BlurView tint="light" intensity={30} style={styles.qrContainer}>
           <QRCode
             value={displayAddress}
             size={220}
-            color="#0A120D"
-            backgroundColor="#FFFFFF"
+            color="#000000"
+            backgroundColor="transparent"
           />
-        </View>
+        </BlurView>
 
-        <View style={styles.statusContainer}>
+        <BlurView tint="dark" intensity={70} style={styles.statusContainer}>
           <View style={styles.statusBadgeRow}>
             <View style={isLoggedIn ? styles.dotActive : styles.dotInactive} />
             <Text style={styles.statusText}>
@@ -61,16 +65,16 @@ export default function Show() {
               Created: {walletData.createdAt.toLocaleDateString()}
             </Text>
           )}
-        </View>
+        </BlurView>
 
         <View style={styles.addressContainer}>
           <Text style={styles.addressLabel}>
             {isLoggedIn ? "YOUR WALLET ADDRESS" : "CUSTOM ADDRESS"}
           </Text>
           {isLoggedIn ? (
-            <View style={styles.walletAddressBox}>
+            <BlurView tint="dark" intensity={50} style={styles.walletAddressBox}>
               <Text style={styles.walletAddressText}>{userWalletAddress}</Text>
-            </View>
+            </BlurView>
           ) : (
             <TextInput
               style={styles.addressInput}
@@ -84,14 +88,18 @@ export default function Show() {
         </View>
 
         {!isLoggedIn && (
-          <TouchableOpacity style={styles.actionButton} onPress={generateRandomAddress}>
-            <Text style={styles.actionButtonText}>Generate Random Address</Text>
+          <TouchableOpacity onPress={generateRandomAddress} style={{ width: '100%', marginBottom: 16 }}>
+             <BlurView tint="dark" intensity={60} style={styles.actionButton}>
+               <Text style={styles.actionButtonText}>Generate Random Address</Text>
+             </BlurView>
           </TouchableOpacity>
         )}
 
         {isLoggedIn && (
-          <TouchableOpacity style={styles.actionButtonSecondary} onPress={copyPrivateKey}>
-            <Text style={styles.actionButtonSecondaryText}>Export Private Key</Text>
+          <TouchableOpacity onPress={copyPrivateKey} style={{ width: '100%' }}>
+             <BlurView tint="dark" intensity={40} style={styles.actionButtonSecondary}>
+               <Text style={styles.actionButtonSecondaryText}>Export Private Key</Text>
+             </BlurView>
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -102,7 +110,25 @@ export default function Show() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A120D',
+    backgroundColor: '#05080A',
+  },
+  bgGlowTop: {
+    position: 'absolute',
+    top: -150, left: -50,
+    width: 350, height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(251, 191, 36, 0.4)',
+    transform: [{ scaleX: 1.5 }],
+    opacity: 0.6,
+  },
+  bgGlowBottom: {
+    position: 'absolute',
+    bottom: -100, right: -50,
+    width: 300, height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    transform: [{ scaleY: 1.2 }],
+    opacity: 0.6,
   },
   header: {
     flexDirection: 'row',
@@ -124,12 +150,13 @@ const styles = StyleSheet.create({
   },
   qrContainer: {
     padding: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
     marginBottom: 32,
     marginTop: 20,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.5,
@@ -138,12 +165,13 @@ const styles = StyleSheet.create({
   statusContainer: {
     marginBottom: 32,
     alignItems: 'center',
-    backgroundColor: 'rgba(28, 30, 31, 1)',
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 16,
+    paddingVertical: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
+    width: '100%',
   },
   statusBadgeRow: {
     flexDirection: 'row',
@@ -153,7 +181,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#10B981',
+    backgroundColor: '#FBBF24',
     marginRight: 8,
   },
   dotInactive: {
@@ -185,13 +213,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   walletAddressBox: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.15)',
     minHeight: 60,
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   walletAddressText: {
     fontSize: 14,
@@ -211,13 +239,12 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.1)',
     paddingVertical: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     alignItems: 'center',
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
   },
   actionButtonText: {
     color: '#FFFFFF',
@@ -226,12 +253,12 @@ const styles = StyleSheet.create({
   },
   actionButtonSecondary: {
     width: '100%',
-    backgroundColor: 'transparent',
     paddingVertical: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
   },
   actionButtonSecondaryText: {
     color: '#FFFFFF',

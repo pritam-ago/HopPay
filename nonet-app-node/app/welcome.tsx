@@ -65,7 +65,7 @@ export default function WelcomePage(): React.JSX.Element {
         <View style={styles.logoSection}>
           <View style={styles.logoContainerBubble}>
             <View style={styles.logoInner}>
-              <Feather name="globe" size={64} color="#10B981" />
+              <Feather name="globe" size={64} color="#FBBF24" />
             </View>
           </View>
           <Text style={styles.appName}>NONET</Text>
@@ -97,7 +97,7 @@ export default function WelcomePage(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A120D',
+    backgroundColor: '#000000',
   },
   content: {
     flex: 1,
@@ -113,23 +113,23 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+    backgroundColor: 'rgba(251, 191, 36, 0.05)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 40,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.2)',
+    borderColor: 'rgba(251, 191, 36, 0.2)',
   },
   logoInner: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    backgroundColor: 'rgba(251, 191, 36, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    shadowColor: '#10B981',
+    borderColor: 'rgba(251, 191, 36, 0.3)',
+    shadowColor: '#FBBF24',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 20,
@@ -154,16 +154,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#10B981',
+    backgroundColor: '#FBBF24',
     paddingVertical: 20,
     borderRadius: 20,
-    shadowColor: '#10B981',
+    shadowColor: '#FBBF24',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
   },
   createButtonDisabled: {
-    backgroundColor: 'rgba(16, 185, 129, 0.5)',
+    backgroundColor: 'rgba(251, 191, 36, 0.5)',
     shadowOpacity: 0,
   },
   createButtonText: {

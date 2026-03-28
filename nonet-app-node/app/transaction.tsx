@@ -110,7 +110,7 @@ export default function TransactionPage(): React.JSX.Element {
         <Text style={styles.modalItemTitle}>{item.name}</Text>
         <Text style={styles.modalItemDescription}>{item.symbol}</Text>
       </View>
-      {selectedChain.id === item.id && <Feather name="check" size={20} color="#10B981" />}
+      {selectedChain.id === item.id && <Feather name="check" size={20} color="#FBBF24" />}
     </TouchableOpacity>
   );
 
@@ -150,7 +150,7 @@ export default function TransactionPage(): React.JSX.Element {
           <View style={[styles.glassCard, styles.merchantCard]}>
             <View style={styles.merchantHeader}>
               <View style={styles.merchantIcon}>
-                <Feather name="shopping-bag" size={20} color="#10B981" />
+                <Feather name="shopping-bag" size={20} color="#FBBF24" />
               </View>
               <Text style={styles.merchantName}>{merchantName || 'Merchant Payment'}</Text>
             </View>
@@ -253,7 +253,7 @@ export default function TransactionPage(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A120D',
+    backgroundColor: '#000000',
   },
   header: {
     flexDirection: 'row',
@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
   },
   glassCard: {
-    backgroundColor: 'rgba(28, 30, 31, 1)',
+    backgroundColor: 'rgba(20, 20, 20, 1)',
     borderRadius: 20,
     padding: 20,
     marginBottom: 20,
@@ -295,8 +295,8 @@ const styles = StyleSheet.create({
   },
   merchantCard: {
     borderLeftWidth: 4,
-    borderLeftColor: '#10B981',
-    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+    borderLeftColor: '#FBBF24',
+    backgroundColor: 'rgba(251, 191, 36, 0.05)',
   },
   merchantHeader: {
     flexDirection: 'row',
@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    backgroundColor: 'rgba(251, 191, 36, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   merchantName: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#10B981',
+    color: '#FBBF24',
   },
   merchantUpi: {
     fontSize: 14,
@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
   currencyPrefix: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#60A5FA',
+    color: '#FBBF24',
     marginRight: 12,
   },
   amountInput: {
@@ -392,13 +392,13 @@ const styles = StyleSheet.create({
     color: '#F3F4F6',
   },
   submitButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#FBBF24',
     borderRadius: 16,
     paddingVertical: 20,
     alignItems: 'center',
     marginTop: 10,
     marginBottom: 16,
-    shadowColor: '#3B82F6',
+    shadowColor: '#FBBF24',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#0A120D',
+    backgroundColor: '#000000',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     borderTopWidth: 1,
