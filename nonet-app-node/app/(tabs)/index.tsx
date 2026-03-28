@@ -4,19 +4,19 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
   Alert,
   SafeAreaView,
   ActivityIndicator,
+  TextInput,
+  ScrollView,
 } from "react-native";
 import { CameraView, CameraType } from "expo-camera";
 import { router } from "expo-router";
-import { Colors } from "@/constants/theme";
 import { useWallet, ScannedAddress } from "@/contexts/WalletContext";
-import { NeoBrutalismColors } from '@/constants/neoBrutalism';
 import { useBle } from "@/contexts/BleContext";
 import { CONTRACT_CONFIG } from "@/constants/contracts";
 import { ethers } from "ethers";
+import { Feather, Ionicons } from "@expo/vector-icons";
 
 // --- QR Parsing ---
 export interface MerchantQRData {
@@ -27,14 +27,6 @@ export interface MerchantQRData {
   note?: string;
 }
 
-/**
- * Parse a QR code string into structured merchant data.
- * Supports:
- *  - Raw Ethereum address: 0x...
- *  - meshpay URI: meshpay://0xABC?name=Merchant&amount=100
- *  - UPI URI: upi://pay?pa=merchant@upi&pn=Name&am=100&tn=Note
- *  - JSON blob: {"address":"0x...","name":"Merchant"}
- */
 export function parseMerchantQR(raw: string): MerchantQRData | null {
   const trimmed = raw.trim();
 
@@ -43,7 +35,7 @@ export function parseMerchantQR(raw: string): MerchantQRData | null {
     return { toAddress: trimmed };
   }
 
-  // 2. meshpay:// URI — meshpay://0xABC123?name=CafeBlue&amount=50&upi=cafe@upi
+  // 2. meshpay:// URI
   if (trimmed.startsWith("meshpay://")) {
     try {
       const url = new URL(trimmed.replace("meshpay://", "https://meshpay/"));
@@ -61,10 +53,7 @@ export function parseMerchantQR(raw: string): MerchantQRData | null {
     }
   }
 
-  // 3. UPI URI — upi://pay?pa=vpa@bank&pn=Name&am=100&tn=Note
-  //    We map `pa` (UPI VPA) to upiId, and embed address lookup.
-  //    Since UPI QRs don't carry a crypto address, we use the UPI VPA as
-  //    the "toAddress" placeholder and flag it — the Relayer resolves payout.
+  // 3. UPI URI
   if (trimmed.startsWith("upi://")) {
     try {
       const url = new URL(trimmed.replace("upi://", "https://upi/"));
@@ -73,11 +62,8 @@ export function parseMerchantQR(raw: string): MerchantQRData | null {
       const am = url.searchParams.get("am");
       const tn = url.searchParams.get("tn");
       if (!pa) return null;
-      // Use UPI VPA as pseudo address — relayer maps this to payout
-      // "Address" field will hold upiId; TransactionLoader knows how to handle
-      // We pad it to look like a valid param for routing purposes
       return {
-        toAddress: `upi:${pa}`, // special prefix — transaction screen shows differently
+        toAddress: `upi:${pa}`,
         upiId: pa,
         merchantName: pn ?? undefined,
         amount: am ?? undefined,
@@ -111,21 +97,17 @@ export default function Scan(): React.JSX.Element {
   const [isScanning, setIsScanning] = useState(false);
   const [facing, setFacing] = useState<CameraType>("back");
 
-  // MeshT token balance
   const [tokenBalance, setTokenBalance] = useState<string | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
 
-  // Use wallet context
   const {
     userWalletAddress,
     isLoggedIn,
     scannedAddresses,
     addScannedAddress,
     clearScannedAddresses,
-    removeScannedAddress,
   } = useWallet();
 
-  // Fetch MeshT token balance from the contract
   const fetchTokenBalance = useCallback(async () => {
     if (!userWalletAddress) {
       setTokenBalance(null);
@@ -143,8 +125,7 @@ export default function Scan(): React.JSX.Element {
       );
       const balance = await contract.balanceOf(userWalletAddress) as bigint;
       const formatted = ethers.formatUnits(balance, 18);
-      // Show up to 4 decimal places, strip trailing zeros
-      const display = parseFloat(formatted).toFixed(4).replace(/\.?0+$/, '');
+      const display = parseFloat(formatted).toFixed(4).replace(/\.?0+$/, "");
       setTokenBalance(display);
     } catch (error) {
       console.error("Failed to fetch token balance:", error);
@@ -154,7 +135,6 @@ export default function Scan(): React.JSX.Element {
     }
   }, [userWalletAddress]);
 
-  // Auto-refresh balance every 30 seconds
   useEffect(() => {
     fetchTokenBalance();
     const interval = setInterval(fetchTokenBalance, 30000);
@@ -163,7 +143,6 @@ export default function Scan(): React.JSX.Element {
 
   const handleBarcodeScanned = ({ data }: { data: string }) => {
     const parsed = parseMerchantQR(data);
-
     if (!parsed) {
       Alert.alert(
         "Unrecognized QR Code",
@@ -171,13 +150,8 @@ export default function Scan(): React.JSX.Element {
       );
       return;
     }
-
     setIsScanning(false);
-
-    // Store the resolved address (raw Eth or upi:vpa) in the scanned list
     addScannedAddress(parsed.toAddress);
-
-    // Navigate with full merchant metadata
     router.push({
       pathname: "/transaction",
       params: {
@@ -205,23 +179,18 @@ export default function Scan(): React.JSX.Element {
     );
   };
 
-
   const renderAddressItem = ({ item }: { item: ScannedAddress }) => {
     const isUpi = item.address.startsWith("upi:");
     const displayAddr = isUpi ? item.address.replace("upi:", "UPI: ") : item.address;
     return (
-      <View style={styles.addressItem}>
+      <View style={styles.addressItem} key={item.id}>
         <View style={styles.addressInfo}>
           {isUpi && (
             <View style={styles.upiTag}>
               <Text style={styles.upiTagText}>UPI</Text>
             </View>
           )}
-          <Text
-            style={styles.addressText}
-            numberOfLines={1}
-            ellipsizeMode="middle"
-          >
+          <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">
             {displayAddr}
           </Text>
           <Text style={styles.timestampText}>
@@ -229,7 +198,7 @@ export default function Scan(): React.JSX.Element {
           </Text>
         </View>
         <TouchableOpacity
-          style={styles.sendButton}
+          style={styles.sendItemButton}
           onPress={() => {
             router.push({
               pathname: "/transaction",
@@ -237,18 +206,15 @@ export default function Scan(): React.JSX.Element {
             });
           }}
         >
-          <Text style={styles.sendButtonText}>Send</Text>
+          <Text style={styles.sendItemText}>Send</Text>
         </TouchableOpacity>
       </View>
     );
   };
 
-  // Camera permissions are now handled at wallet creation level
-  // If user reaches this screen, we assume permissions are granted
-
   if (isScanning) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.cameraContainer}>
         <CameraView
           style={styles.camera}
           facing={facing}
@@ -276,69 +242,145 @@ export default function Scan(): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-      <Text style={styles.title}>QR Code Scanner</Text>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-      {/* MeshT Token Balance Card */}
-      <View style={styles.balanceCard}>
-        <View style={styles.balanceHeader}>
-          <Text style={styles.balanceLabel}>MESHT BALANCE</Text>
-          <TouchableOpacity onPress={fetchTokenBalance} disabled={isLoadingBalance}>
-            <Text style={styles.refreshText}>{isLoadingBalance ? '⏳' : '🔄'}</Text>
-          </TouchableOpacity>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.relayPill}>
+            <View style={styles.relayDot} />
+            <Text style={styles.relayText}>Relay: ON</Text>
+          </View>
         </View>
-        {!isLoggedIn ? (
-          <Text style={styles.balanceNoWallet}>No wallet connected</Text>
-        ) : isLoadingBalance && tokenBalance === null ? (
-          <ActivityIndicator size="small" color={NeoBrutalismColors.primary} style={{ marginVertical: 8 }} />
-        ) : (
+
+        {/* Search */}
+        <View style={styles.searchContainer}>
+          <Feather name="search" size={20} color="#8A8A8E" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search @hoppay ID to pay..."
+            placeholderTextColor="#8A8A8E"
+          />
+        </View>
+
+        {/* Balance Card */}
+        <View style={styles.balanceCard}>
+          <View style={styles.balanceHeader}>
+            <Text style={styles.balanceLabel}>TOTAL BALANCE</Text>
+            <TouchableOpacity onPress={fetchTokenBalance} disabled={isLoadingBalance}>
+              {isLoadingBalance ? (
+                <ActivityIndicator size="small" color="#A0A0A0" />
+              ) : (
+                <Feather name="eye" size={16} color="#A0A0A0" />
+              )}
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.balanceValueRow}>
-            <Text style={styles.balanceValue}>{tokenBalance ?? '—'}</Text>
+            <Text style={styles.balanceValue}>{tokenBalance ?? "0"}</Text>
             <Text style={styles.balanceSymbol}>MESHT</Text>
           </View>
-        )}
-        <Text style={styles.balanceContract}>
-          Flow EVM Testnet · {CONTRACT_CONFIG.CONTRACT_ADDRESS.slice(0,6)}...{CONTRACT_CONFIG.CONTRACT_ADDRESS.slice(-4)}
-        </Text>
-      </View>
 
-      <TouchableOpacity
-        style={styles.scanButton}
-        onPress={() => setIsScanning(true)}
-      >
-        <Text style={styles.scanButtonText}>Start Scanning</Text>
-      </TouchableOpacity>
+          <View style={styles.userBadgeRow}>
+            <View style={styles.userBadge}>
+              <Text style={styles.userBadgeText}>user@hoppay</Text>
+              <Feather name="copy" size={14} color="#E0E0E0" style={{ marginLeft: 6 }} />
+            </View>
+          </View>
+        </View>
 
-      <View style={styles.addressesSection}>
-        <View style={styles.addressesHeader}>
-          <Text style={styles.addressesTitle}>
-            Scanned Addresses ({scannedAddresses.length})
-          </Text>
-          {scannedAddresses.length > 0 && (
-            <TouchableOpacity onPress={clearAddresses}>
-              <Text style={styles.clearText}>Clear All</Text>
+        {/* Action Buttons Row */}
+        <View style={styles.actionsContainer}>
+          <View style={styles.actionCol}>
+            <TouchableOpacity
+              style={styles.actionCircleButton}
+              onPress={() => setIsScanning(true)}
+            >
+              <Feather name="maximize" size={22} color="#FFF" />
             </TouchableOpacity>
+            <Text style={styles.actionLabel}>Scan</Text>
+          </View>
+          <View style={styles.actionCol}>
+            <TouchableOpacity
+              style={styles.actionCircleButton}
+              onPress={() => router.push("/show")}
+            >
+              <Feather name="credit-card" size={22} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.actionLabel}>Wallet</Text>
+          </View>
+          <View style={styles.actionCol}>
+            <TouchableOpacity
+              style={styles.actionCircleButton}
+              onPress={() => router.push("/mesh")}
+            >
+              <Feather name="share-2" size={22} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.actionLabel}>Mesh</Text>
+          </View>
+          <View style={styles.actionCol}>
+            <TouchableOpacity
+              style={styles.actionCircleButton}
+              onPress={() => router.push("/receive")}
+            >
+              <Feather name="arrow-down-left" size={22} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.actionLabel}>Receive</Text>
+          </View>
+        </View>
+
+        {/* People Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>People</Text>
+          <TouchableOpacity>
+            <Text style={styles.seeAllText}>See All</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.peopleScroll}>
+          <View style={styles.avatarCol}>
+            <View style={[styles.avatarCircle, { backgroundColor: '#3B82F6' }]}>
+              <Text style={styles.avatarInitial}>A</Text>
+            </View>
+            <Text style={styles.avatarName}>Alice</Text>
+          </View>
+          <View style={styles.avatarCol}>
+            <View style={[styles.avatarCircle, { backgroundColor: '#8B5CF6' }]}>
+              <Text style={styles.avatarInitial}>B</Text>
+            </View>
+            <Text style={styles.avatarName}>Bob</Text>
+          </View>
+          <View style={styles.avatarCol}>
+            <View style={[styles.avatarCircle, { backgroundColor: '#10B981' }]}>
+              <Text style={styles.avatarInitial}>M</Text>
+            </View>
+            <Text style={styles.avatarName}>Merchant</Text>
+          </View>
+          <View style={styles.avatarCol}>
+            <View style={[styles.avatarCircle, { backgroundColor: '#F59E0B' }]}>
+              <Text style={styles.avatarInitial}>D</Text>
+            </View>
+            <Text style={styles.avatarName}>David</Text>
+          </View>
+        </ScrollView>
+
+        {/* Recent Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent</Text>
+          <TouchableOpacity onPress={scannedAddresses.length > 0 ? clearAddresses : undefined}>
+            <Text style={styles.seeAllText}>See All</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.recentContainer}>
+          {scannedAddresses.length === 0 ? (
+            <View style={styles.emptyRecent}>
+              <View style={styles.emptyRecentBox} />
+            </View>
+          ) : (
+            scannedAddresses.map((item) => renderAddressItem({ item }))
           )}
         </View>
 
-        {scannedAddresses.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No addresses scanned yet</Text>
-            <Text style={styles.emptySubText}>
-              Tap "Start Scanning" to scan your first QR code
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={scannedAddresses}
-            renderItem={renderAddressItem}
-            keyExtractor={(item) => item.id}
-            style={styles.addressesList}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-      </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -346,43 +388,265 @@ export default function Scan(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: NeoBrutalismColors.background,
+    backgroundColor: "#0A120D", // Dark rich green/black
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 40,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: NeoBrutalismColors.textPrimary,
-    textAlign: "center",
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 24,
-    textTransform: "uppercase",
-    letterSpacing: 1,
   },
-  scanButton: {
-    backgroundColor: NeoBrutalismColors.primary,
-    borderColor: NeoBrutalismColors.primary,
-    borderWidth: 4,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-    marginBottom: 32,
-    shadowColor: NeoBrutalismColors.primary,
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 0,
-    elevation: 8,
-  },
-  scanButtonText: {
-    color: NeoBrutalismColors.textInverse,
+  helloText: {
+    color: "#9CA3AF",
     fontSize: 16,
+    fontWeight: "500",
+  },
+  nameText: {
+    color: "#FFFFFF",
+    fontSize: 24,
     fontWeight: "800",
-    textAlign: "center",
-    textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: -0.5,
+  },
+  relayPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  relayDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#10B981",
+    marginRight: 6,
+  },
+  relayText: {
+    color: "#F3F4F6",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 52,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    marginBottom: 24,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 12,
+    color: "#FFFFFF",
+    fontSize: 16,
+  },
+  balanceCard: {
+    backgroundColor: "rgba(28, 30, 31, 1)",
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+  },
+  balanceHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  balanceLabel: {
+    color: "#9CA3AF",
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 1.5,
+    marginRight: 8,
+  },
+  balanceValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  balanceValue: {
+    color: "#FFFFFF",
+    fontSize: 56,
+    fontWeight: "800",
+    letterSpacing: -2,
+    marginRight: 12,
+  },
+  balanceSymbol: {
+    color: "#6B7280",
+    fontSize: 24,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  userBadgeRow: {
+    alignItems: "center",
+  },
+  userBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  userBadgeText: {
+    color: "#E0E0E0",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  actionsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    marginBottom: 36,
+  },
+  actionCol: {
+    alignItems: "center",
+  },
+  actionCircleButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(25, 25, 25, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  actionLabel: {
+    color: "#D1D5DB",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  seeAllText: {
+    color: "#3B82F6",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  peopleScroll: {
+    marginBottom: 32,
+    overflow: "visible",
+  },
+  avatarCol: {
+    alignItems: "center",
+    marginRight: 24,
+  },
+  avatarCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  avatarInitial: {
+    color: "#FFF",
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  avatarName: {
+    color: "#E5E7EB",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  recentContainer: {
+    minHeight: 80,
+  },
+  emptyRecent: {
+    alignItems: "center",
+  },
+  emptyRecentBox: {
+    width: "100%",
+    height: 60,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  addressItem: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  addressInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  addressText: {
+    fontSize: 14,
+    fontFamily: "monospace",
+    color: "#D1D5DB",
+    marginBottom: 5,
+    fontWeight: "600",
+  },
+  timestampText: {
+    fontSize: 12,
+    color: "#9CA3AF",
+  },
+  upiTag: {
+    backgroundColor: "#10B981",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+    marginBottom: 4,
+  },
+  upiTagText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  sendItemButton: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  sendItemText: {
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: "#000",
   },
   camera: {
     flex: 1,
@@ -419,166 +683,5 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "600",
-  },
-  addressesSection: {
-    flex: 1,
-  },
-  addressesHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 15,
-  },
-  addressesTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: NeoBrutalismColors.textPrimary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  clearText: {
-    color: NeoBrutalismColors.primary,
-    fontSize: 14,
-    fontWeight: "600",
-    textTransform: "uppercase",
-  },
-  addressesList: {
-    flex: 1,
-  },
-  addressItem: {
-    backgroundColor: NeoBrutalismColors.surface,
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 3,
-    borderColor: NeoBrutalismColors.borderSubtle,
-    shadowColor: NeoBrutalismColors.primary,
-    shadowOffset: {
-      width: 2,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 0,
-    elevation: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  addressInfo: {
-    flex: 1,
-    marginRight: 10,
-  },
-  addressText: {
-    fontSize: 14,
-    fontFamily: "monospace",
-    color: NeoBrutalismColors.textPrimary,
-    marginBottom: 5,
-    fontWeight: "600",
-  },
-  sendButton: {
-    backgroundColor: NeoBrutalismColors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: NeoBrutalismColors.primary,
-  },
-  sendButtonText: {
-    color: NeoBrutalismColors.textInverse,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  timestampText: {
-    fontSize: 12,
-    color: NeoBrutalismColors.textSecondary,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  emptyText: {
-    fontSize: 16,
-    color: NeoBrutalismColors.textSecondary,
-    marginBottom: 8,
-    fontWeight: "600",
-  },
-  emptySubText: {
-    fontSize: 14,
-    color: NeoBrutalismColors.textTertiary,
-    textAlign: "center",
-  },
-  upiTag: {
-    backgroundColor: "#10B981",
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    alignSelf: "flex-start",
-    marginBottom: 4,
-  },
-  upiTagText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-
-  // --- MeshT Token Balance Card ---
-  balanceCard: {
-    backgroundColor: NeoBrutalismColors.surface,
-    borderWidth: 3,
-    borderColor: NeoBrutalismColors.primary,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    shadowColor: NeoBrutalismColors.primary,
-    shadowOffset: { width: 3, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 0,
-    elevation: 6,
-  },
-  balanceHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  balanceLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: NeoBrutalismColors.primary,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-  },
-  refreshText: {
-    fontSize: 18,
-  },
-  balanceNoWallet: {
-    fontSize: 14,
-    color: NeoBrutalismColors.textTertiary,
-    fontStyle: "italic",
-    marginVertical: 4,
-  },
-  balanceValueRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginBottom: 8,
-  },
-  balanceValue: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: NeoBrutalismColors.textPrimary,
-    marginRight: 8,
-  },
-  balanceSymbol: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: NeoBrutalismColors.primary,
-  },
-  balanceContract: {
-    fontSize: 11,
-    color: NeoBrutalismColors.textTertiary,
-    fontFamily: "monospace",
   },
 });

@@ -1,18 +1,18 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from 'react-native-qrcode-svg';
-import { Colors } from '@/constants/theme';
 import { useWallet } from '@/contexts/WalletContext';
+import { router } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 
-export default function Show(): React.JSX.Element {
+export default function Show() {
   const { userWalletAddress, isLoggedIn, walletData } = useWallet();
-  const [customAddress, setCustomAddress] = useState<string>('');
+  const [customAddress, setCustomAddress] = useState('');
   
-  // Use user's wallet address if logged in, otherwise use custom address
   const displayAddress = userWalletAddress || customAddress || '0x742d35Cc6634C0532925a3b8D404d0C8b7b8E5c2';
 
   const generateRandomAddress = () => {
-    // Generate a mock Web3 wallet address for demonstration
     const randomHex = () => Math.floor(Math.random() * 16).toString(16);
     const newAddress = '0x' + Array.from({ length: 40 }, () => randomHex()).join('');
     setCustomAddress(newAddress);
@@ -23,192 +23,219 @@ export default function Show(): React.JSX.Element {
       Alert.alert('Error', 'No private key available. Please create a wallet first.');
       return;
     }
-
-    // In a real app, you would use a clipboard library like @react-native-clipboard/clipboard
-    // For now, we'll show an alert with the private key
     Alert.alert(
       'Private Key',
       `Your private key:\n\n${walletData.privateKey}\n\n⚠️ Keep this private key secure and never share it with anyone!`,
       [
-        {
-          text: 'Copy to Clipboard',
-          onPress: () => {
-            // Here you would implement actual clipboard functionality
-            Alert.alert('Copied', 'Private key copied to clipboard');
-          }
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
+        { text: 'Copy to Clipboard', onPress: () => Alert.alert('Copied', 'Private key copied to clipboard') },
+        { text: 'Cancel', style: 'cancel' }
       ]
     );
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Wallet Address QR Code</Text>
-      
-      <View style={styles.qrContainer}>
-        <QRCode
-          value={displayAddress}
-          size={200}
-          color="black"
-          backgroundColor="white"
-        />
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>WALLET</Text>
       </View>
 
-      {/* Wallet Status */}
-      <View style={styles.statusContainer}>
-        <Text style={styles.statusText}>
-          Status: {isLoggedIn ? "Wallet Connected" : "No Wallet"}
-        </Text>
-        {walletData && (
-          <Text style={styles.createdText}>
-            Created: {walletData.createdAt.toLocaleDateString()}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.addressContainer}>
-        <Text style={styles.addressLabel}>
-          {isLoggedIn ? "Your Wallet Address:" : "Custom Address:"}
-        </Text>
-        {isLoggedIn ? (
-          <Text style={styles.walletAddressText}>{userWalletAddress}</Text>
-        ) : (
-          <TextInput
-            style={styles.addressInput}
-            value={customAddress}
-            onChangeText={setCustomAddress}
-            placeholder="Enter custom wallet address"
-            placeholderTextColor={Colors.light.icon}
-            multiline
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.qrContainer}>
+          <QRCode
+            value={displayAddress}
+            size={220}
+            color="#0A120D"
+            backgroundColor="#FFFFFF"
           />
+        </View>
+
+        <View style={styles.statusContainer}>
+          <View style={styles.statusBadgeRow}>
+            <View style={isLoggedIn ? styles.dotActive : styles.dotInactive} />
+            <Text style={styles.statusText}>
+              {isLoggedIn ? "Wallet Connected" : "No Wallet"}
+            </Text>
+          </View>
+          {walletData && (
+            <Text style={styles.createdText}>
+              Created: {walletData.createdAt.toLocaleDateString()}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.addressContainer}>
+          <Text style={styles.addressLabel}>
+            {isLoggedIn ? "YOUR WALLET ADDRESS" : "CUSTOM ADDRESS"}
+          </Text>
+          {isLoggedIn ? (
+            <View style={styles.walletAddressBox}>
+              <Text style={styles.walletAddressText}>{userWalletAddress}</Text>
+            </View>
+          ) : (
+            <TextInput
+              style={styles.addressInput}
+              value={customAddress}
+              onChangeText={setCustomAddress}
+              placeholder="Enter custom wallet address"
+              placeholderTextColor="#8A8A8E"
+              multiline
+            />
+          )}
+        </View>
+
+        {!isLoggedIn && (
+          <TouchableOpacity style={styles.actionButton} onPress={generateRandomAddress}>
+            <Text style={styles.actionButtonText}>Generate Random Address</Text>
+          </TouchableOpacity>
         )}
-      </View>
 
-      {!isLoggedIn && (
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.generateButton} onPress={generateRandomAddress}>
-            <Text style={styles.buttonText}>Generate Random Address</Text>
+        {isLoggedIn && (
+          <TouchableOpacity style={styles.actionButtonSecondary} onPress={copyPrivateKey}>
+            <Text style={styles.actionButtonSecondaryText}>Export Private Key</Text>
           </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Copy Private Key Button - Only show when logged in */}
-      {isLoggedIn && (
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.copyPrivateKeyButton} onPress={copyPrivateKey}>
-            <Text style={styles.copyButtonText}>Export Private Key</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Colors.light.background,
-    padding: 20,
+    backgroundColor: '#0A120D',
   },
-  title: {
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
     fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors.light.text,
-    marginBottom: 30,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  content: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 40,
   },
   qrContainer: {
-    padding: 20,
-    backgroundColor: 'white',
-    borderRadius: 10,
+    padding: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 32,
+    marginTop: 20,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-    marginBottom: 30,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+  },
+  statusContainer: {
+    marginBottom: 32,
+    alignItems: 'center',
+    backgroundColor: 'rgba(28, 30, 31, 1)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  statusBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+    marginRight: 8,
+  },
+  dotInactive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+    marginRight: 8,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  createdText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 6,
   },
   addressContainer: {
     width: '100%',
-    marginBottom: 30,
+    marginBottom: 32,
   },
   addressLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#9CA3AF',
+    marginBottom: 12,
+    letterSpacing: 1.5,
   },
-  addressInput: {
+  walletAddressBox: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    borderColor: Colors.light.icon,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    color: Colors.light.text,
-    backgroundColor: 'white',
+    borderColor: 'rgba(255,255,255,0.08)',
     minHeight: 60,
-    textAlignVertical: 'top',
-  },
-  statusContainer: {
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  statusText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: 5,
-  },
-  createdText: {
-    fontSize: 14,
-    color: Colors.light.icon,
+    justifyContent: 'center',
   },
   walletAddressText: {
     fontSize: 14,
     fontFamily: 'monospace',
-    color: Colors.light.text,
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 8,
+    color: '#D1D5DB',
+  },
+  addressInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    borderColor: Colors.light.icon,
+    borderColor: 'rgba(255,255,255,0.08)',
     minHeight: 60,
+    fontSize: 14,
+    color: '#FFFFFF',
     textAlignVertical: 'top',
   },
-  buttonContainer: {
+  actionButton: {
     width: '100%',
-    gap: 15,
-  },
-  generateButton: {
-    backgroundColor: '#6B7280',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 16,
+    borderRadius: 16,
     alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
-  buttonText: {
-    color: 'white',
+  actionButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  copyPrivateKeyButton: {
-    backgroundColor: '#6B7280', // Same gray color as generate button
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 8,
+  actionButtonSecondary: {
+    width: '100%',
+    backgroundColor: 'transparent',
+    paddingVertical: 16,
+    borderRadius: 16,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  copyButtonText: {
-    color: 'white',
+  actionButtonSecondaryText: {
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

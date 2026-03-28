@@ -1,40 +1,29 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  SafeAreaView,
-  Animated,
-} from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Animated } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import QRCode from "react-native-qrcode-svg";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useWallet } from "@/contexts/WalletContext";
 import { useBle } from "@/contexts/BleContext";
-import { NeoBrutalismColors } from "@/constants/neoBrutalism";
 import { verifyGhostVoucher, VerificationResult } from "@/lib/signatureVerifier";
 import { TransactionPayload } from "@/constants/contracts";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { router } from "expo-router";
+import { Feather } from "@expo/vector-icons";
 
 interface ReceivedVoucher {
   id: string;
   payload: TransactionPayload;
   rawJson: string;
   verification: VerificationResult;
-  receivedAt: number; // unix ms
+  receivedAt: number;
   relayed: boolean;
   relayTxHash?: string;
 }
 
 const PENDING_QUEUE_KEY = "meshT_pending_vouchers";
-const RELAYER_URL = "http://localhost:3001/relay"; // Replace with your deployed relayer URL
+const RELAYER_URL = "http://localhost:3001/relay";
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export default function ReceiveScreen(): React.JSX.Element {
+export default function ReceiveScreen() {
   const { userWalletAddress, isLoggedIn } = useWallet();
   const { masterState, hasInternet } = useBle();
 
@@ -43,11 +32,9 @@ export default function ReceiveScreen(): React.JSX.Element {
   const [latestVoucher, setLatestVoucher] = useState<ReceivedVoucher | null>(null);
   const [isRelaying, setIsRelaying] = useState(false);
 
-  // Pulse animation for the "listening" indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const processedIds = useRef(new Set<string>());
 
-  // ─── Pulse Loop ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isListening) return;
     const loop = Animated.loop(
@@ -60,27 +47,23 @@ export default function ReceiveScreen(): React.JSX.Element {
     return () => loop.stop();
   }, [isListening, pulseAnim]);
 
-  // ─── Load persisted queue on mount ───────────────────────────────────────
   useEffect(() => {
     AsyncStorage.getItem(PENDING_QUEUE_KEY).then((raw) => {
       if (raw) {
         try {
           const saved: ReceivedVoucher[] = JSON.parse(raw);
           setVouchers(saved);
-        } catch {/* ignore */}
+        } catch {}
       }
     });
   }, []);
 
-  // ─── Persist queue whenever it changes ───────────────────────────────────
   useEffect(() => {
     AsyncStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(vouchers));
   }, [vouchers]);
 
-  // ─── Watch BLE MasterState for new incoming payloads ─────────────────────
   useEffect(() => {
     masterState.forEach((state, id) => {
-      // Only process complete, non-ACK messages (those are incoming vouchers from senders)
       if (!state.isComplete || state.isAck) return;
       if (processedIds.current.has(String(id))) return;
 
@@ -95,9 +78,8 @@ export default function ReceiveScreen(): React.JSX.Element {
       processedIds.current.add(String(id));
       handleIncomingVoucher(state.fullMessage, payload, String(id));
     });
-  }, [masterState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [masterState]);
 
-  // ─── When internet comes back, auto-relay pending vouchers ───────────────
   useEffect(() => {
     if (hasInternet) {
       const pending = vouchers.filter((v) => !v.relayed && v.verification.valid);
@@ -105,37 +87,21 @@ export default function ReceiveScreen(): React.JSX.Element {
         relayPendingVouchers(pending);
       }
     }
-  }, [hasInternet]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasInternet]);
 
-  // ─── Handle an incoming BLE voucher ──────────────────────────────────────
   const handleIncomingVoucher = useCallback(
     async (rawJson: string, payload: TransactionPayload, id: string) => {
-      // Local EIP-712 verification — pure cryptography, zero network calls
       const verification = await verifyGhostVoucher(rawJson);
-
-      const voucher: ReceivedVoucher = {
-        id,
-        payload,
-        rawJson,
-        verification,
-        receivedAt: Date.now(),
-        relayed: false,
-      };
+      const voucher: ReceivedVoucher = { id, payload, rawJson, verification, receivedAt: Date.now(), relayed: false };
 
       setVouchers((prev) => [voucher, ...prev]);
       setLatestVoucher(voucher);
 
-      if (verification.valid) {
-        // Immediately try to relay if we have internet
-        if (hasInternet) {
-          relayVoucher(voucher);
-        }
-      }
+      if (verification.valid && hasInternet) relayVoucher(voucher);
     },
-    [hasInternet] // eslint-disable-line react-hooks/exhaustive-deps
+    [hasInternet]
   );
 
-  // ─── Relay a single voucher to the Node.js relayer ───────────────────────
   const relayVoucher = async (voucher: ReceivedVoucher) => {
     try {
       setIsRelaying(true);
@@ -145,28 +111,20 @@ export default function ReceiveScreen(): React.JSX.Element {
         body: voucher.rawJson,
       });
       const result = await response.json();
-
       if (result.success) {
         setVouchers((prev) =>
-          prev.map((v) =>
-            v.id === voucher.id
-              ? { ...v, relayed: true, relayTxHash: result.transactionHash }
-              : v
-          )
+          prev.map((v) => (v.id === voucher.id ? { ...v, relayed: true, relayTxHash: result.transactionHash } : v))
         );
       }
     } catch (err) {
-      console.warn("Relay failed, will retry when online:", err);
+      console.warn("Relay failed, will retry:", err);
     } finally {
       setIsRelaying(false);
     }
   };
 
-  // ─── Relay all pending vouchers ───────────────────────────────────────────
   const relayPendingVouchers = async (pending: ReceivedVoucher[]) => {
-    for (const v of pending) {
-      await relayVoucher(v);
-    }
+    for (const v of pending) await relayVoucher(v);
   };
 
   const clearHistory = () => {
@@ -184,16 +142,13 @@ export default function ReceiveScreen(): React.JSX.Element {
     ]);
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   if (!isLoggedIn || !userWalletAddress) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyCenter}>
-          <Text style={styles.emptyIcon}>🔒</Text>
+          <Feather name="lock" size={48} color="#4B5563" style={{ marginBottom: 16 }} />
           <Text style={styles.emptyTitle}>No Wallet</Text>
-          <Text style={styles.emptySubtext}>
-            Create a wallet first to receive payments.
-          </Text>
+          <Text style={styles.emptySubtext}>Create a wallet first to receive payments.</Text>
         </View>
       </SafeAreaView>
     );
@@ -202,426 +157,353 @@ export default function ReceiveScreen(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
+        
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>RECEIVE</Text>
-          <View style={[styles.statusBadge, hasInternet ? styles.onlineBadge : styles.offlineBadge]}>
-            <Text style={styles.statusBadgeText}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.headerTitle}>RECEIVE</Text>
+          </View>
+          <View style={[styles.statusBadge, hasInternet ? styles.badgeOnline : styles.badgeOffline]}>
+            <Text style={[styles.statusBadgeText, { color: hasInternet ? '#10B981' : '#F59E0B' }]}>
               {hasInternet ? "🌐 ONLINE" : "📡 MESH MODE"}
             </Text>
           </View>
         </View>
 
-        {/* QR Code — Merchant shows this to customers to scan */}
-        <View style={styles.qrSection}>
+        <View style={styles.glassContainer}>
           <Text style={styles.sectionLabel}>YOUR PAYMENT QR</Text>
           <View style={styles.qrWrapper}>
-            <QRCode
-              value={userWalletAddress}
-              size={180}
-              color="#000000"
-              backgroundColor="#FFFFFF"
-            />
+            <QRCode value={userWalletAddress} size={180} color="#0A120D" backgroundColor="#FFFFFF" />
           </View>
-          <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">
-            {userWalletAddress}
-          </Text>
+          <View style={styles.addressBox}>
+            <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">{userWalletAddress}</Text>
+          </View>
         </View>
 
-        {/* Listening Indicator */}
         <View style={styles.listeningSection}>
-          <Animated.View
-            style={[styles.pulseDot, { transform: [{ scale: pulseAnim }] }]}
-          />
+          <Animated.View style={[styles.pulseDot, { transform: [{ scale: pulseAnim }], backgroundColor: isListening ? '#10B981' : '#4B5563' }]} />
           <Text style={styles.listeningText}>
             {isListening ? "Listening for BLE payments…" : "Paused"}
           </Text>
           <TouchableOpacity
-            style={styles.toggleButton}
+            style={[styles.toggleButton, !isListening && styles.toggleButtonPaused]}
             onPress={() => setIsListening((v) => !v)}
           >
-            <Text style={styles.toggleButtonText}>
+            <Text style={[styles.toggleButtonText, !isListening && { color: '#9CA3AF' }]}>
               {isListening ? "PAUSE" : "RESUME"}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Latest Payment Banner */}
         {latestVoucher && (
-          <View
-            style={[
-              styles.latestBanner,
-              latestVoucher.verification.valid
-                ? styles.successBanner
-                : styles.errorBanner,
-            ]}
-          >
-            <Text style={styles.bannerIcon}>
-              {latestVoucher.verification.valid ? "✅" : "❌"}
-            </Text>
-            <View style={styles.bannerText}>
-              <Text style={styles.bannerTitle}>
-                {latestVoucher.verification.valid
-                  ? "Payment Received (Offline)"
-                  : "Invalid Voucher"}
-              </Text>
-              {latestVoucher.verification.valid ? (
-                <>
-                  <Text style={styles.bannerAmount}>
-                    {latestVoucher.verification.amountFormatted} MESHT
-                  </Text>
-                  <Text style={styles.bannerFrom}>
-                    From: {latestVoucher.verification.from?.slice(0, 8)}…
-                    {latestVoucher.verification.from?.slice(-6)}
-                  </Text>
-                  {latestVoucher.relayed ? (
-                    <Text style={styles.relayedTag}>✓ Settled on-chain</Text>
-                  ) : (
-                    <Text style={styles.pendingTag}>
-                      ⏳ Pending relay{hasInternet ? " (relaying…)" : " (awaiting signal)"}
-                    </Text>
-                  )}
-                </>
-              ) : (
-                <Text style={styles.bannerError}>
-                  {latestVoucher.verification.error}
+          <View style={[styles.bannerCard, latestVoucher.verification.valid ? styles.bannerCardSuccess : styles.bannerCardError]}>
+            <View style={styles.bannerRow}>
+              <View style={styles.bannerIconWrapper}>
+                <Feather name={latestVoucher.verification.valid ? "check-circle" : "x-circle"} size={28} color={latestVoucher.verification.valid ? "#10B981" : "#EF4444"} />
+              </View>
+              <View style={styles.bannerDetails}>
+                <Text style={styles.bannerTitle}>
+                  {latestVoucher.verification.valid ? "Payment Received" : "Invalid Voucher"}
                 </Text>
-              )}
+                {latestVoucher.verification.valid ? (
+                  <>
+                    <Text style={styles.bannerAmount}>{latestVoucher.verification.amountFormatted} MESHT</Text>
+                    <Text style={styles.bannerFrom}>From: {latestVoucher.verification.from?.slice(0, 8)}...{latestVoucher.verification.from?.slice(-6)}</Text>
+                    {latestVoucher.relayed ? (
+                      <View style={styles.tagRow}><Feather name="check" size={14} color="#10B981" /><Text style={styles.settledTag}> Settled on-chain</Text></View>
+                    ) : (
+                      <View style={styles.tagRow}><Feather name="clock" size={14} color="#F59E0B" /><Text style={styles.pendingTag}> Pending relay{hasInternet ? " (relaying…)" : " (awaiting signal)"}</Text></View>
+                    )}
+                  </>
+                ) : (
+                  <Text style={styles.bannerError}>{latestVoucher.verification.error}</Text>
+                )}
+              </View>
             </View>
           </View>
         )}
 
-        {/* Voucher History */}
-        {vouchers.length > 0 && (
-          <View style={styles.historySection}>
-            <View style={styles.historyHeader}>
-              <Text style={styles.sectionLabel}>VOUCHER HISTORY ({vouchers.length})</Text>
+        <View style={styles.historySection}>
+          <View style={styles.historyHeader}>
+            <Text style={styles.sectionLabel}>VOUCHER HISTORY ({vouchers.length})</Text>
+            {vouchers.length > 0 && (
               <TouchableOpacity onPress={clearHistory}>
                 <Text style={styles.clearText}>Clear</Text>
               </TouchableOpacity>
+            )}
+          </View>
+          
+          {vouchers.length === 0 && !latestVoucher ? (
+            <View style={styles.emptyHistoryBox}>
+              <Feather name="inbox" size={32} color="#4B5563" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyHistoryText}>No vouchers received yet.{"\n"}Ask a customer to scan your QR.</Text>
             </View>
-            {vouchers.map((v) => (
-              <View
-                key={v.id}
-                style={[
-                  styles.historyItem,
-                  v.verification.valid ? styles.validItem : styles.invalidItem,
-                ]}
-              >
+          ) : (
+            vouchers.map((v) => (
+              <View key={v.id} style={[styles.historyItem, v.verification.valid ? styles.hiValid : styles.hiInvalid]}>
                 <View style={styles.historyItemLeft}>
-                  <Text style={styles.historyAmount}>
-                    {v.verification.valid
-                      ? `${v.verification.amountFormatted} MESHT`
-                      : "INVALID"}
+                  <Text style={[styles.historyAmount, !v.verification.valid && { color: '#EF4444' }]}>
+                    {v.verification.valid ? `${v.verification.amountFormatted} MESHT` : "INVALID"}
                   </Text>
-                  <Text style={styles.historyTime}>
-                    {new Date(v.receivedAt).toLocaleTimeString()}
-                  </Text>
-                  {v.relayTxHash && (
-                    <Text style={styles.historyTxHash} numberOfLines={1}>
-                      Tx: {v.relayTxHash.slice(0, 14)}…
-                    </Text>
-                  )}
+                  <Text style={styles.historyTime}>{new Date(v.receivedAt).toLocaleTimeString()}</Text>
+                  {v.relayTxHash && <Text style={styles.historyTxHash} numberOfLines={1}>Tx: {v.relayTxHash.slice(0, 14)}…</Text>}
                 </View>
-                <View style={styles.historyItemRight}>
-                  <Text
-                    style={[
-                      styles.historyStatus,
-                      v.relayed
-                        ? styles.statusSettled
-                        : v.verification.valid
-                        ? styles.statusPending
-                        : styles.statusInvalid,
-                    ]}
-                  >
+                <View style={[styles.hiStatusPill, v.relayed ? styles.hiPillSettled : v.verification.valid ? styles.hiPillPending : styles.hiPillInvalid]}>
+                  <Text style={[styles.hiStatusText, v.relayed ? styles.hiTextSettled : v.verification.valid ? styles.hiTextPending : styles.hiTextInvalid]}>
                     {v.relayed ? "SETTLED" : v.verification.valid ? "PENDING" : "INVALID"}
                   </Text>
                 </View>
               </View>
-            ))}
-          </View>
-        )}
+            ))
+          )}
+        </View>
 
-        {vouchers.length === 0 && !latestVoucher && (
-          <View style={styles.emptyHistory}>
-            <Text style={styles.emptyHistoryText}>
-              No vouchers received yet.{"\n"}Ask a customer to scan your QR and pay.
-            </Text>
-          </View>
-        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: NeoBrutalismColors.background,
+    backgroundColor: '#0A120D',
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 10,
+    paddingBottom: 20,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: NeoBrutalismColors.textPrimary,
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
     letterSpacing: 2,
   },
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 2,
+    borderRadius: 16,
+    borderWidth: 1,
   },
-  onlineBadge: {
-    backgroundColor: "#D1FAE5",
-    borderColor: "#10B981",
-  },
-  offlineBadge: {
-    backgroundColor: "#FEF3C7",
-    borderColor: "#F59E0B",
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
+  badgeOnline: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
+  badgeOffline: { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' },
+  statusBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: NeoBrutalismColors.textSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#9CA3AF',
     letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  qrSection: {
-    alignItems: "center",
-    paddingTop: 16,
-    paddingBottom: 8,
+  glassContainer: {
+    marginHorizontal: 20,
+    padding: 24,
+    backgroundColor: 'rgba(28, 30, 31, 1)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
   },
   qrWrapper: {
     padding: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 3,
-    borderColor: NeoBrutalismColors.border,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 0,
-    elevation: 6,
+    marginBottom: 20,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  addressBox: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   addressText: {
-    fontSize: 12,
-    fontFamily: "monospace",
-    color: NeoBrutalismColors.textSecondary,
-    maxWidth: 280,
+    fontSize: 13,
+    fontFamily: 'monospace',
+    color: '#D1D5DB',
   },
   listeningSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    backgroundColor: NeoBrutalismColors.surface,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: NeoBrutalismColors.border,
-    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'rgba(28, 30, 31, 1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   pulseDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#10B981",
-    marginRight: 10,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
   },
   listeningText: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: NeoBrutalismColors.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#F3F4F6',
   },
   toggleButton: {
-    backgroundColor: NeoBrutalismColors.primary,
-    borderRadius: 6,
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.4)',
+  },
+  toggleButtonPaused: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   toggleButtonText: {
-    color: "#FFFFFF",
+    color: '#60A5FA',
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
-  latestBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 3,
+  bannerCard: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
   },
-  successBanner: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#10B981",
+  bannerCardSuccess: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
   },
-  errorBanner: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#EF4444",
+  bannerCardError: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
   },
-  bannerIcon: {
-    fontSize: 32,
-    marginRight: 14,
+  bannerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
-  bannerText: {
+  bannerIconWrapper: {
+    marginRight: 16,
+  },
+  bannerDetails: {
     flex: 1,
   },
   bannerTitle: {
     fontSize: 16,
-    fontWeight: "800",
-    color: NeoBrutalismColors.textPrimary,
-    marginBottom: 4,
+    fontWeight: '800',
+    color: '#F3F4F6',
+    marginBottom: 8,
   },
   bannerAmount: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#047857",
-    marginBottom: 2,
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#10B981',
+    marginBottom: 4,
   },
   bannerFrom: {
     fontSize: 12,
-    fontFamily: "monospace",
-    color: NeoBrutalismColors.textSecondary,
-    marginBottom: 6,
+    fontFamily: 'monospace',
+    color: '#9CA3AF',
+    marginBottom: 8,
   },
   bannerError: {
     fontSize: 13,
-    color: "#B91C1C",
+    color: '#EF4444',
   },
-  relayedTag: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#047857",
+  tagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  pendingTag: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#B45309",
-  },
+  settledTag: { fontSize: 13, fontWeight: '700', color: '#10B981' },
+  pendingTag: { fontSize: 13, fontWeight: '700', color: '#F59E0B' },
   historySection: {
-    paddingHorizontal: 16,
-    marginTop: 20,
-    paddingBottom: 30,
+    paddingHorizontal: 20,
+    marginTop: 32,
+    paddingBottom: 40,
   },
   historyHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   clearText: {
     fontSize: 13,
-    fontWeight: "700",
-    color: NeoBrutalismColors.primary,
-    textTransform: "uppercase",
-    marginBottom: 12,
+    fontWeight: '700',
+    color: '#EF4444',
   },
   historyItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 14,
-    borderRadius: 10,
-    borderWidth: 2,
-    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 12,
   },
-  validItem: {
-    backgroundColor: NeoBrutalismColors.surface,
-    borderColor: NeoBrutalismColors.border,
+  hiValid: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  invalidItem: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FCA5A5",
+  hiInvalid: {
+    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+    borderColor: 'rgba(239, 68, 68, 0.2)',
   },
-  historyItemLeft: {
-    flex: 1,
-  },
-  historyItemRight: {},
-  historyAmount: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: NeoBrutalismColors.textPrimary,
-  },
-  historyTime: {
-    fontSize: 11,
-    color: NeoBrutalismColors.textSecondary,
-    marginTop: 2,
-  },
-  historyTxHash: {
-    fontSize: 10,
-    fontFamily: "monospace",
-    color: NeoBrutalismColors.textTertiary,
-    marginTop: 2,
-  },
-  historyStatus: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    paddingHorizontal: 8,
+  historyItemLeft: { flex: 1 },
+  historyAmount: { fontSize: 16, fontWeight: '800', color: '#F3F4F6' },
+  historyTime: { fontSize: 12, color: '#9CA3AF', marginTop: 4 },
+  historyTxHash: { fontSize: 11, fontFamily: 'monospace', color: '#6B7280', marginTop: 4 },
+  hiStatusPill: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
-    overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  statusSettled: {
-    backgroundColor: "#D1FAE5",
-    color: "#047857",
-  },
-  statusPending: {
-    backgroundColor: "#FEF3C7",
-    color: "#B45309",
-  },
-  statusInvalid: {
-    backgroundColor: "#FEE2E2",
-    color: "#B91C1C",
-  },
+  hiPillSettled: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
+  hiPillPending: { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' },
+  hiPillInvalid: { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' },
+  hiStatusText: { fontSize: 11, fontWeight: '800' },
+  hiTextSettled: { color: '#10B981' },
+  hiTextPending: { color: '#F59E0B' },
+  hiTextInvalid: { color: '#EF4444' },
   emptyCenter: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 32,
-  },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: NeoBrutalismColors.textPrimary,
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFF',
     marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 14,
-    color: NeoBrutalismColors.textSecondary,
-    textAlign: "center",
+    fontSize: 15,
+    color: '#9CA3AF',
   },
-  emptyHistory: {
-    padding: 24,
-    alignItems: "center",
+  emptyHistoryBox: {
+    alignItems: 'center',
+    padding: 32,
+    backgroundColor: 'rgba(28, 30, 31, 0.5)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)',
   },
   emptyHistoryText: {
-    fontSize: 13,
-    color: NeoBrutalismColors.textSecondary,
-    textAlign: "center",
-    lineHeight: 20,
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });

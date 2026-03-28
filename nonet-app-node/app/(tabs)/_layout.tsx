@@ -1,68 +1,80 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { MaterialIcons } from '@expo/vector-icons';
-import { SafeAreaView, Platform, StatusBar } from 'react-native';
-
-import { HapticTab } from '@/components/haptic-tab';
-import { Colors } from '@/constants/theme';
-import { NeoBrutalismColors } from '@/constants/neoBrutalism';
+import { Feather } from '@expo/vector-icons';
+import { Platform, View, StyleSheet } from 'react-native';
 
 export default function TabLayout() {
-  // Calculate safe area padding for Android
-  const statusBarHeight = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
-  
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: NeoBrutalismColors.primary,
-        tabBarInactiveTintColor: NeoBrutalismColors.textSecondary,
-        tabBarStyle: { 
-          backgroundColor: NeoBrutalismColors.background,
-          borderTopWidth: 4,
-          borderTopColor: NeoBrutalismColors.border,
-          paddingTop: Platform.OS === 'android' ? statusBarHeight + 8 : 8,
-          height: Platform.OS === 'android' ? 70 + statusBarHeight : 70,
-          paddingBottom: 8,
-        },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '700',
-          textTransform: 'uppercase',
-          letterSpacing: 1,
-          marginTop: 4,
-        },
         headerShown: false,
-        tabBarButton: HapticTab,
-        tabBarPosition: 'top',
+        tabBarStyle: {
+          position: 'absolute',
+          bottom: 24,
+          left: 20,
+          right: 20,
+          elevation: 0,
+          backgroundColor: Platform.OS === 'ios' ? 'rgba(15, 20, 18, 0.95)' : 'rgba(15, 20, 18, 0.98)',
+          borderRadius: 32,
+          height: 64,
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.08)',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.5,
+          shadowRadius: 20,
+        },
+        tabBarActiveTintColor: '#10B981',
+        tabBarInactiveTintColor: '#6B7280',
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '700',
+          marginBottom: 8,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 8,
+        },
+        tabBarBackground: () => (
+          <View style={{ flex: 1, backgroundColor: 'rgba(15, 20, 18, 0.95)', borderRadius: 32 }} />
+        ),
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'SCAN',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="qr-code-scanner" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="show"
-        options={{
-          title: 'WALLET',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="account-balance-wallet" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="mesh"
-        options={{
-          title: 'MESH',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="device-hub" color={color} />,
+          title: 'Home',
+          tabBarIcon: ({ color, focused }) => <Feather size={24} name="home" color={color} style={focused && styles.iconActive} />,
         }}
       />
       <Tabs.Screen
         name="receive"
         options={{
-          title: 'RECEIVE',
-          tabBarIcon: ({ color }) => <MaterialIcons size={28} name="payments" color={color} />,
+          title: 'Scan',
+          tabBarIcon: ({ color, focused }) => <Feather size={24} name="camera" color={color} style={focused && styles.iconActive} />,
+        }}
+      />
+      <Tabs.Screen
+        name="show"
+        options={{
+          title: 'Wallet',
+          tabBarIcon: ({ color, focused }) => <Feather size={24} name="credit-card" color={color} style={focused && styles.iconActive} />,
+        }}
+      />
+      <Tabs.Screen
+        name="mesh"
+        options={{
+          title: 'Radar',
+          tabBarIcon: ({ color, focused }) => <Feather size={24} name="radio" color={color} style={focused && styles.iconActive} />,
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconActive: {
+    textShadowColor: 'rgba(16, 185, 129, 0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  }
+});

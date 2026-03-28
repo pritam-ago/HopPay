@@ -1,21 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, SafeAreaView } from "react-native";
-import {
-  Text,
-  Button,
-  Card,
-  Surface,
-  Divider,
-  Chip,
-  useTheme,
-} from "react-native-paper";
+import { View, StyleSheet, ScrollView, Animated } from "react-native";
+import { Text } from "react-native-paper"; // Only keeping minimal paper if absolutely needed, but let's replace entirely with native Text where possible
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
 import { useBle } from "@/contexts/BleContext";
-import { CONTRACT_CONFIG } from "@/constants/contracts";
+import { Feather } from '@expo/vector-icons';
+import { TouchableOpacity, ActivityIndicator } from "react-native";
 
 export default function TransactionSuccessPage(): React.JSX.Element {
-  const theme = useTheme();
   const { stopBroadcasting } = useBle();
   const {
     amount, currency, toAddress, chain, txHash, timestamp, fullMessage,
@@ -33,36 +26,16 @@ export default function TransactionSuccessPage(): React.JSX.Element {
       merchantPhone?: string;
     }>();
 
-  // SMS state
   const [smsStatus, setSmsStatus] = useState<"sending" | "sent" | "failed" | "none">("none");
   const [smsPhone, setSmsPhone] = useState<string>("");
-
-  const handleGoHome = () => {
-    router.replace("/");
-  };
-
-  const handleNewTransaction = () => {
-    router.replace("/");
-  };
 
   useEffect(() => {
     stopBroadcasting();
   }, [stopBroadcasting]);
 
-  // ── SMS is now handled by the relayer backend automatically ──────────────
-  // The /relay endpoint sends SMS after successful blockchain transaction.
-  // No need to call /send-sms separately from the frontend to avoid duplicates.
-  
-  // If you need to show SMS status in UI, you can:
-  // 1. Get SMS status from the relay response
-  // 2. Or assume SMS was sent if UPI ID exists
-  
   useEffect(() => {
-    // Auto-detect if SMS should have been sent based on UPI ID
     if (upiId || merchantPhone) {
-      console.log("[SMS] 📱 SMS notification handled by relayer backend");
       setSmsStatus("sent");
-      // Extract phone for display purposes only
       const phoneMatch = upiId?.match(/^([6-9]\d{9})@/);
       if (phoneMatch) {
         setSmsPhone(phoneMatch[1]);
@@ -74,245 +47,307 @@ export default function TransactionSuccessPage(): React.JSX.Element {
 
   const generateSignatureString = (hash: string): string => {
     if (!hash) return "Generating signature...";
-    return `0x${hash.slice(2, 34)}...${hash.slice(-32)}`;
+    return `0x${hash.slice(2, 34)}...\n${hash.slice(-32)}`;
   };
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
-      <ScrollView contentContainerStyle={styles.content}>
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.headerRow}>
+         <Text style={styles.headerTitle}>RECEIPT</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        
         {/* Success Header */}
-        <View style={styles.successHeader}>
-          <Text style={styles.successIcon}>✅</Text>
-          <Text
-            variant="headlineMedium"
-            style={[styles.successTitle, { color: theme.colors.onBackground }]}
-          >
-            Transaction Sent!
-          </Text>
+        <View style={styles.glassCardTop}>
+          <View style={styles.successIconBubble}>
+            <Feather name="check" size={48} color="#10B981" />
+          </View>
+          <Text style={styles.successTitle}>Transaction Sent!</Text>
+          <Text style={styles.amountDisplay}>{amount} {currency}</Text>
+          <View style={styles.chainPill}>
+            <Text style={styles.chainPillText}>{chain}</Text>
+          </View>
         </View>
 
         {/* SMS Status Card */}
         {smsStatus !== "none" && (
-          <Card style={[
-            styles.smsCard,
-            smsStatus === "sent" ? styles.smsCardSuccess :
-            smsStatus === "failed" ? styles.smsCardFailed :
-            styles.smsCardSending
-          ]} elevation={2}>
-            <Card.Content style={styles.smsContent}>
-              <Text style={styles.smsIcon}>
-                {smsStatus === "sending" ? "📱" : smsStatus === "sent" ? "✅" : "❌"}
-              </Text>
-              <View style={styles.smsTextContainer}>
-                <Text variant="titleSmall" style={styles.smsTitle}>
-                  {smsStatus === "sending" ? "Sending SMS notification..."
-                   : smsStatus === "sent" ? "SMS Sent to Merchant!"
-                   : "SMS notification failed"}
-                </Text>
-                {smsStatus === "sent" && smsPhone ? (
-                  <Text variant="bodySmall" style={styles.smsPhone}>
-                    Sent to +91{smsPhone}
-                  </Text>
-                ) : null}
-              </View>
-            </Card.Content>
-          </Card>
+          <View style={[styles.glassCard, smsStatus === "sent" ? styles.smsBorderSuccess : styles.smsBorderFailed]}>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+               <View style={styles.smsIconWrapper}>
+                 <Feather name={smsStatus === "sending" ? "loader" : smsStatus === "sent" ? "message-square" : "alert-circle"} size={24} color={smsStatus === "sent" ? "#10B981" : "#EF4444"} />
+               </View>
+               <View style={styles.smsTextWrapper}>
+                 <Text style={styles.smsTitle}>
+                   {smsStatus === "sending" ? "Sending SMS notification..." : smsStatus === "sent" ? "SMS Sent to Merchant!" : "SMS notification failed"}
+                 </Text>
+                 {smsStatus === "sent" && smsPhone && (
+                   <Text style={styles.smsPhone}>Sent to +91{smsPhone}</Text>
+                 )}
+               </View>
+            </View>
+          </View>
         )}
 
         {/* QR Code Section */}
-        <Card style={styles.qrCard} elevation={4}>
-          <Card.Content style={styles.qrContent}>
-            <Text variant="titleLarge" style={styles.qrTitle}>
-              Transaction QR Code
-            </Text>
-            <View style={styles.qrContainer}>
-              {txHash ? (
-                <QRCode
-                  value={txHash}
-                  size={200}
-                  backgroundColor="white"
-                  color="black"
-                />
-              ) : (
-                <View style={styles.qrPlaceholder}>
-                  <Text>Generating QR...</Text>
-                </View>
-              )}
-            </View>
-          </Card.Content>
-        </Card>
+        <View style={styles.glassCard}>
+          <Text style={styles.sectionLabel}>TRANSACTION QR</Text>
+          <View style={styles.qrContainer}>
+            {txHash ? (
+              <QRCode value={txHash} size={180} backgroundColor="#FFFFFF" color="#0A120D" />
+            ) : (
+              <View style={styles.qrPlaceholder}><ActivityIndicator color="#10B981"/></View>
+            )}
+          </View>
+        </View>
 
-        {/* Transaction Hash */}
-        <Card style={styles.hashCard} elevation={2}>
-          <Card.Content>
-            <Text variant="titleMedium" style={styles.hashTitle}>
-              Transaction Hash
-            </Text>
-            <Surface style={styles.hashSurface} elevation={1}>
-              <Text variant="bodyMedium" style={styles.hashText} selectable>
-                {txHash || "Generating hash..."}
-              </Text>
-            </Surface>
-          </Card.Content>
-        </Card>
+        {/* Details Grid */}
+        <View style={styles.glassCard}>
+          <Text style={styles.sectionLabel}>TRANSACTION DETAILS</Text>
+          
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Recipient</Text>
+            <Text style={styles.detailValueAddress} numberOfLines={1}>{toAddress ? `${toAddress.slice(0, 8)}...${toAddress.slice(-8)}` : "Unknown"}</Text>
+          </View>
 
-        {/* Hash Signature */}
-        <Card style={styles.signatureCard} elevation={2}>
-          <Card.Content>
-            <Text variant="titleMedium" style={styles.signatureTitle}>
-              Hash Signature
-            </Text>
-            <Surface style={styles.signatureSurface} elevation={1}>
-              <Text variant="bodyMedium" style={styles.signatureText} selectable>
-                {generateSignatureString(txHash || "")}
-              </Text>
-            </Surface>
-          </Card.Content>
-        </Card>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Time</Text>
+            <Text style={styles.detailValue}>{timestamp ? new Date(parseInt(timestamp)).toLocaleString() : "Just now"}</Text>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Tx Hash</Text>
+            <Text style={styles.detailValueAddress}>{txHash ? `${txHash.slice(0, 10)}...` : "Pending"}</Text>
+          </View>
+        </View>
+
+        {/* Signature */}
+        <View style={styles.glassCard}>
+          <Text style={styles.sectionLabel}>HASH SIGNATURE</Text>
+          <View style={styles.signatureBox}>
+            <Text style={styles.signatureText}>{generateSignatureString(txHash || "")}</Text>
+          </View>
+        </View>
 
         {/* Full Message Response */}
-        {fullMessage ? (
-          <Card style={styles.responseCard} elevation={2}>
-            <Card.Content>
-              <Text variant="titleMedium" style={styles.responseTitle}>
-                Network Response
-              </Text>
-              <Surface style={styles.responseSurface} elevation={1}>
-                <ScrollView style={styles.responseScroll} nestedScrollEnabled>
-                  <Text variant="bodySmall" style={styles.responseText} selectable>
-                    {fullMessage}
-                  </Text>
-                </ScrollView>
-              </Surface>
-            </Card.Content>
-          </Card>
-        ) : null}
+        {fullMessage && (
+          <View style={styles.glassCard}>
+            <Text style={styles.sectionLabel}>NETWORK RESPONSE</Text>
+            <ScrollView style={styles.responseScroll} nestedScrollEnabled>
+              <Text style={styles.responseText}>{fullMessage}</Text>
+            </ScrollView>
+          </View>
+        )}
 
-        {/* Primary Action */}
-        <Button
-          mode="contained"
-          onPress={handleGoHome}
-          style={styles.homeButton}
-          contentStyle={styles.homeButtonContent}
-        >
-          Go to Home
-        </Button>
+        <View style={styles.buttonGroup}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => router.replace("/")}>
+            <Text style={styles.primaryButtonText}>Back to Home</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => router.replace("/")}>
+            <Text style={styles.secondaryButtonText}>Send Another</Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Transaction Details */}
-        <Card style={styles.detailsCard}>
-          <Card.Content>
-            <Text variant="titleMedium" style={styles.detailsTitle}>
-              Transaction Details
-            </Text>
-            <Divider style={styles.divider} />
-
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>Amount</Text>
-              <Text variant="bodyMedium" style={styles.detailValue}>{amount} {currency}</Text>
-            </View>
-
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>Network</Text>
-              <Chip mode="outlined" style={styles.chainChip}>{chain}</Chip>
-            </View>
-
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>To Address</Text>
-              <Text variant="bodySmall" style={styles.addressText}>
-                {toAddress ? `${toAddress.slice(0, 8)}...${toAddress.slice(-8)}` : "Unknown"}
-              </Text>
-            </View>
-
-            <View style={styles.detailRow}>
-              <Text variant="labelMedium" style={styles.detailLabel}>Time</Text>
-              <Text variant="bodyMedium" style={styles.detailValue}>
-                {timestamp ? new Date(parseInt(timestamp)).toLocaleString() : "Just now"}
-              </Text>
-            </View>
-          </Card.Content>
-        </Card>
-
-        <Button
-          mode="outlined"
-          onPress={handleNewTransaction}
-          style={styles.secondaryButton}
-          contentStyle={styles.buttonContent}
-        >
-          Send Another Transaction
-        </Button>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-
-  successHeader: { alignItems: "center", marginBottom: 24, marginTop: 16 },
-  successIcon: { fontSize: 48, marginBottom: 16 },
-  successTitle: { textAlign: "center", fontWeight: "700" },
-
-  // SMS Status Card
-  smsCard: { marginBottom: 20, borderRadius: 12 },
-  smsCardSending: { backgroundColor: "#FFF9C4" },
-  smsCardSuccess: { backgroundColor: "#E8F5E9", borderLeftWidth: 4, borderLeftColor: "#4CAF50" },
-  smsCardFailed: { backgroundColor: "#FFEBEE", borderLeftWidth: 4, borderLeftColor: "#F44336" },
-  smsContent: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
-  smsIcon: { fontSize: 28, marginRight: 12 },
-  smsTextContainer: { flex: 1 },
-  smsTitle: { fontWeight: "700", color: "#333" },
-  smsPhone: { color: "#666", marginTop: 2 },
-
-  // QR Code
-  qrCard: { marginBottom: 24, backgroundColor: "#FFFFFF" },
-  qrContent: { alignItems: "center", paddingVertical: 24 },
-  qrTitle: { fontWeight: "700", marginBottom: 20, textAlign: "center", color: "#333" },
+  container: {
+    flex: 1,
+    backgroundColor: '#0A120D',
+  },
+  headerRow: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 3,
+  },
+  content: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  glassCardTop: {
+    backgroundColor: 'rgba(28, 30, 31, 1)',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.2)',
+  },
+  successIconBubble: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#F3F4F6',
+    marginBottom: 8,
+  },
+  amountDisplay: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#10B981',
+    marginBottom: 12,
+  },
+  chainPill: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  chainPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D1D5DB',
+  },
+  glassCard: {
+    backgroundColor: 'rgba(28, 30, 31, 1)',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  smsBorderSuccess: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981',
+  },
+  smsBorderFailed: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#EF4444',
+  },
+  smsIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  smsTextWrapper: {
+    flex: 1,
+  },
+  smsTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F3F4F6',
+    marginBottom: 4,
+  },
+  smsPhone: {
+    fontSize: 13,
+    color: '#9CA3AF',
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#9CA3AF',
+    letterSpacing: 2,
+    marginBottom: 16,
+  },
   qrContainer: {
-    padding: 16, backgroundColor: "#FFFFFF", borderRadius: 12,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   qrPlaceholder: {
-    width: 200, height: 200, justifyContent: "center",
-    alignItems: "center", backgroundColor: "#F5F5F5", borderRadius: 8,
+    width: 180,
+    height: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // Transaction Hash
-  hashCard: { marginBottom: 20, backgroundColor: "#FFFFFF" },
-  hashTitle: { fontWeight: "600", marginBottom: 12, color: "#333" },
-  hashSurface: { padding: 16, borderRadius: 8, backgroundColor: "#F8F9FA" },
-  hashText: { fontFamily: "monospace", fontSize: 14, color: "#333", textAlign: "center" },
-
-  // Signature
-  signatureCard: { marginBottom: 24, backgroundColor: "#FFFFFF" },
-  signatureTitle: { fontWeight: "600", marginBottom: 12, color: "#333" },
-  signatureSurface: { padding: 16, borderRadius: 8, backgroundColor: "#F8F9FA" },
-  signatureText: { fontFamily: "monospace", fontSize: 14, color: "#333", textAlign: "center" },
-
-  // Network Response
-  responseCard: { marginBottom: 20, backgroundColor: "#FFFFFF" },
-  responseTitle: { fontWeight: "600", marginBottom: 12, color: "#333" },
-  responseSurface: { padding: 16, borderRadius: 8, backgroundColor: "#F8F9FA", maxHeight: 150 },
-  responseScroll: { maxHeight: 120 },
-  responseText: { fontFamily: "monospace", fontSize: 12, color: "#333", lineHeight: 18 },
-
-  // Buttons
-  homeButton: { marginBottom: 32, backgroundColor: "#007AFF" },
-  homeButtonContent: { paddingVertical: 16 },
-  detailsCard: { marginBottom: 20, backgroundColor: "#FFFFFF" },
-  detailsTitle: { fontWeight: "600", marginBottom: 16, color: "#333" },
-  divider: { marginBottom: 16 },
   detailRow: {
-    flexDirection: "row", justifyContent: "space-between",
-    alignItems: "center", marginBottom: 12, paddingVertical: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  detailLabel: { textTransform: "uppercase", color: "#666", flex: 1 },
-  detailValue: { fontWeight: "600", color: "#333", flex: 2, textAlign: "right" },
-  chainChip: { backgroundColor: "#E3F2FD" },
-  addressText: { fontFamily: "monospace", color: "#666", flex: 2, textAlign: "right" },
-  secondaryButton: { marginBottom: 16 },
-  buttonContent: { paddingVertical: 12 },
+  detailLabel: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#F3F4F6',
+  },
+  detailValueAddress: {
+    fontSize: 14,
+    fontFamily: 'monospace',
+    color: '#D1D5DB',
+  },
+  signatureBox: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: 16,
+    borderRadius: 12,
+  },
+  signatureText: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  responseScroll: {
+    maxHeight: 120,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: 16,
+    borderRadius: 12,
+  },
+  responseText: {
+    fontFamily: 'monospace',
+    fontSize: 11,
+    color: '#9CA3AF',
+    lineHeight: 16,
+  },
+  buttonGroup: {
+    marginTop: 10,
+  },
+  primaryButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  secondaryButton: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  secondaryButtonText: {
+    color: '#E5E7EB',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });
