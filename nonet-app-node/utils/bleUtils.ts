@@ -96,10 +96,7 @@ export const encodeMessageToChunks = (
   options: { id?: number; isAck?: boolean } = {}
 ): Uint8Array[] => {
   const HEADER_SIZE = 3;
-  // 18 bytes of payload per chunk: keeps total chunks ~31 for a 550-byte JSON
-  // (vs. 6 bytes which required ~94 chunks and caused near-certain BLE packet loss)
-  // BLE advertisement max usable payload is ~23 bytes; 18 data + 3 header = 21 bytes, safe for all Android devices
-  const DATA_PER_CHUNK = 18;
+  const DATA_PER_CHUNK = 6;
   const MAX_PAYLOAD_SIZE = HEADER_SIZE + DATA_PER_CHUNK;
 
   const encoder = new TextEncoder();
@@ -107,7 +104,7 @@ export const encodeMessageToChunks = (
   const totalChunks = Math.ceil(binaryArray.length / DATA_PER_CHUNK) || 1;
 
   if (totalChunks > 127) {
-    throw new Error(`Message is too large and exceeds the 127 chunk limit. Length: ${binaryArray.length} bytes, chunks needed: ${totalChunks}`);
+    throw new Error("Message is too large and exceeds the 127 chunk limit.");
   }
 
   let uniqueId = options.id;

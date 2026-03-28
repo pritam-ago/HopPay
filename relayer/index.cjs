@@ -53,27 +53,37 @@ async function verifySignature(payload) {
   try {
     const { parameters, contractAddress } = payload;
 
-    // Replicate the contract's keccak256(abi.encodePacked(...))
-    const messageHash = ethers.solidityPackedKeccak256(
-      ["address", "address", "uint256", "uint256", "uint256", "bytes32", "address", "uint256"],
-      [
-        parameters.from,
-        parameters.to,
-        BigInt(parameters.value),
-        BigInt(parameters.validAfter),
-        BigInt(parameters.validBefore),
-        parameters.nonce,
-        contractAddress,
-        BigInt(CHAIN_ID),
-      ]
-    );
+    // EIP-712 domain — must match the deployed contract's domain separator
+    const domain = {
+      name: TOKEN_NAME,      // "MESHT"
+      version: TOKEN_VERSION, // "1"
+      chainId: CHAIN_ID,
+      verifyingContract: contractAddress,
+    };
 
-    // hashMessage adds the "\x19Ethereum Signed Message:\n32" prefix
-    const recovered = ethers.recoverAddress(
-      ethers.hashMessage(ethers.getBytes(messageHash)),
-      parameters.signature
-    );
+    // EIP-3009 TransferWithAuthorization type
+    const types = {
+      TransferWithAuthorization: [
+        { name: "from", type: "address" },
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" },
+        { name: "nonce", type: "bytes32" },
+      ],
+    };
 
+    const message = {
+      from: parameters.from,
+      to: parameters.to,
+      value: BigInt(parameters.value),
+      validAfter: BigInt(parameters.validAfter),
+      validBefore: BigInt(parameters.validBefore),
+      nonce: parameters.nonce,
+    };
+
+    // Recover signer using EIP-712 typed data
+    const recovered = ethers.verifyTypedData(domain, types, message, parameters.signature);
     return recovered.toLowerCase() === parameters.from.toLowerCase();
   } catch {
     return false;
@@ -243,14 +253,14 @@ app.post("/relay", async (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 MeshT Relayer running on http://0.0.0.0:${PORT}`);
-  console.log(`   Accessible from phone at: http://172.16.41.80:${PORT}`);
+  console.log(`   Accessible from phone at: http://172.16.41.78:${PORT}`);
   console.log(`   Network:  ${RPC_URL}`);
   console.log(`   Contract: ${CONTRACT_ADDRESS}`);
   if (RELAYER_PRIVATE_KEY) {
     console.log(`   Relayer:  ${new ethers.Wallet(RELAYER_PRIVATE_KEY).address}`);
   }
-  console.log(`\n   POST http://172.16.41.80:${PORT}/relay`);
-  console.log(`   GET  http://172.16.41.80:${PORT}/health\n`);
+  console.log(`\n   POST http://172.16.41.78:${PORT}/relay`);
+  console.log(`   GET  http://172.16.41.78:${PORT}/health\n`);
 });
 
 module.exports = app;

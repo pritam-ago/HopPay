@@ -34,7 +34,7 @@ const createTransferWithAuthorizationSignature = async (
 ): Promise<string> => {
   try {
     console.log(
-      "🔐 Creating transferWithAuthorization signature (simple keccak256 + Ethereum prefix)..."
+      "🔐 Creating transferWithAuthorization signature (EIP-712 signTypedData)..."
     );
 
     // Create wallet from private key
@@ -56,15 +56,15 @@ const createTransferWithAuthorizationSignature = async (
       if (nonceBytes.length !== 32) {
         throw new Error(`Nonce must be exactly 32 bytes, got ${nonceBytes.length} bytes`);
       }
-      nonceBytes32 = nonce.toLowerCase();
+      nonceBytes32 = nonce;
     } else {
       if (nonce.length !== 64) {
         throw new Error(`Nonce must be 64 hex characters, got ${nonce.length}`);
       }
-      nonceBytes32 = "0x" + nonce.toLowerCase();
+      nonceBytes32 = "0x" + nonce;
     }
 
-    console.log("📝 Signing parameters:", {
+    console.log("📝 EIP-712 Signing parameters:", {
       from,
       to,
       value,
@@ -75,38 +75,49 @@ const createTransferWithAuthorizationSignature = async (
       chainId,
     });
 
-    // Replicate contract's keccak256(abi.encodePacked(...))
-    const messageHash = ethers.solidityPackedKeccak256(
-      ["address", "address", "uint256", "uint256", "uint256", "bytes32", "address", "uint256"],
-      [
-        from,
-        to,
-        BigInt(value),
-        BigInt(validAfter),
-        BigInt(validBefore),
-        nonceBytes32,
-        contractAddress,
-        BigInt(chainId),
-      ]
-    );
+    // EIP-712 domain — must match the deployed contract's domain separator
+    const domain = {
+      name: CONTRACT_CONFIG.TOKEN_NAME,    // "MESHT"
+      version: CONTRACT_CONFIG.TOKEN_VERSION, // "1"
+      chainId: chainId,
+      verifyingContract: contractAddress,
+    };
 
-    console.log("📝 Message hash:", messageHash);
+    // EIP-3009 TransferWithAuthorization type
+    const types = {
+      TransferWithAuthorization: [
+        { name: "from", type: "address" },
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" },
+        { name: "nonce", type: "bytes32" },
+      ],
+    };
 
-    // Sign with Ethereum prefix (matches ECDSA.recover in contract)
-    // wallet.signMessage(bytes) adds "\x19Ethereum Signed Message:\n32" prefix automatically
-    const signature = await wallet.signMessage(ethers.getBytes(messageHash));
+    // The message values
+    const message = {
+      from: from,
+      to: to,
+      value: BigInt(value),
+      validAfter: BigInt(validAfter),
+      validBefore: BigInt(validBefore),
+      nonce: nonceBytes32,
+    };
 
-    console.log("✅ Signature created:", {
+    console.log("📝 EIP-712 Domain:", domain);
+
+    // Sign using EIP-712 typed structured data
+    const signature = await wallet.signTypedData(domain, types, message);
+
+    console.log("✅ EIP-712 Signature created:", {
       signature,
       signatureLength: signature.length,
     });
 
-    // Verify locally before broadcasting
+    // Verify locally: recover signer from typed data
     try {
-      const recoveredSigner = ethers.recoverAddress(
-        ethers.hashMessage(ethers.getBytes(messageHash)),
-        signature
-      );
+      const recoveredSigner = ethers.verifyTypedData(domain, types, message, signature);
       const isValid = recoveredSigner.toLowerCase() === from.toLowerCase();
       console.log("🔍 Signature verification:", { recoveredSigner, expectedSigner: from, isValid });
       if (!isValid) {

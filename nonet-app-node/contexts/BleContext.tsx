@@ -475,16 +475,19 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
     forceUpdate();
 
     // --- STALL DETECTION: Reset timer on every new chunk ---
-    // If we stop receiving chunks for 30s, log diagnostics but do NOT attempt
-    // partial reassembly — parsing an incomplete JSON causes the
-    // "JSON Parse error: Expect ':' after the key" error.
+    // With DATA_PER_CHUNK=6, a ~550-byte JSON needs ~94 chunks.
+    // At 100ms broadcast interval, one full cycle is ~9.4s.
+    // We allow 45s (approx 5 full retransmission cycles) before logging.
+    // IMPORTANT: We NEVER force partial reassembly — zero-filling gaps
+    // corrupts JSON (e.g. "key":"val" becomes "ke\0\0l" → parse error).
+    // The sender re-broadcasts continuously, so missing chunks will arrive.
     const stallTimers = stallTimersRef.current;
     if (stallTimers.has(id)) {
       clearTimeout(stallTimers.get(id)!);
       stallTimers.delete(id);
     }
     if (!entry.isComplete) {
-      const STALL_TIMEOUT_MS = 30000;
+      const STALL_TIMEOUT_MS = 45000;
       const stallTimer = setTimeout(() => {
         const currentEntry = masterStateRef.current.get(id);
         if (!currentEntry || currentEntry.isComplete) return;
@@ -493,11 +496,10 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
         for (let i = 1; i <= currentEntry.totalChunks; i++) {
           if (!currentEntry.chunks.has(i)) missing.push(i);
         }
-        console.warn(`⚠️ [MESH] Stall detected for message ${id}: ${currentEntry.chunks.size}/${currentEntry.totalChunks} chunks (${pct}%). Missing chunks: [${missing.join(', ')}]. Waiting for retransmission — NOT attempting partial parse to avoid JSON corruption.`);
-        // Do NOT call reassembleAndProcess here — a missing chunk in the
-        // middle of the JSON turns e.g. "key" → "ke\0\0y" which after
-        // null-stripping produces invalid JSON (missing the ':' separator).
-        // The sender will keep re-broadcasting; we just need to wait.
+        console.warn(`⚠️ [MESH] Stall detected for message ${id}: ${currentEntry.chunks.size}/${currentEntry.totalChunks} chunks (${pct}%). Missing: [${missing.join(', ')}]. Still waiting for retransmission...`);
+        // Do NOT call reassembleAndProcess — partial reassembly with
+        // zero-filled gaps produces invalid JSON. The sender keeps
+        // re-broadcasting, so we just keep listening.
       }, STALL_TIMEOUT_MS);
       stallTimers.set(id, stallTimer);
     }
@@ -520,8 +522,7 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
 
     console.log(`📦 [MESH] Reassembling message ID: ${id} (${entry.chunks.size}/${entry.totalChunks} chunks)`);
 
-    // Must match DATA_PER_CHUNK in bleUtils.ts encodeMessageToChunks
-    const DATA_PER_CHUNK = 18;
+    const DATA_PER_CHUNK = 6;
     const fullBinary = new Uint8Array(entry.totalChunks * DATA_PER_CHUNK); // zero-initialised
     let offset = 0;
 
@@ -700,7 +701,7 @@ export const BleProvider: React.FC<BleProviderProps> = ({ children }) => {
 
       broadcastCursorRef.current = { queueIndex, chunkIndex };
       forceUpdate();
-    }, 250);
+    }, 100); // 100ms per chunk: 94 chunks = ~9.4s per full cycle (was 250ms = 23.5s)
   };
 
   // Stop the master broadcast loop
