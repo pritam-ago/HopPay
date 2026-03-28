@@ -588,8 +588,13 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           let response: string;
 
           if (transactionPayload.upiId) {
-            // UPI payment → route through relayer: blockchain + Decentro INR payout
+            // UPI payment → route through relayer: blockchain + Decentro INR payout + SMS
             console.log("💳 UPI payment — calling relayer for INR payout to:", transactionPayload.upiId);
+          } else {
+            console.log("🔗 Crypto payment — routing through relayer for blockchain submission");
+          }
+
+          try {
             const relayRes = await fetch(CONTRACT_CONFIG.RELAYER_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -606,10 +611,11 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
               timestamp: Date.now(),
             });
             if (relayJson.success) {
-              console.log("✅ Relayer: TX", relayJson.transactionHash, "| INR Payout:", relayJson.payout);
+              console.log("✅ Relayer: TX", relayJson.transactionHash, "| Payout:", relayJson.payout);
             }
-          } else {
-            // Crypto-only (no UPI) → submit directly to blockchain
+          } catch (relayErr) {
+            // Fallback: if relayer is unreachable, submit directly to blockchain
+            console.warn("⚠️ Relayer unreachable, falling back to direct submission:", relayErr);
             response = await submitTransactionToBlockchain(payloadString);
           }
 

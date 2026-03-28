@@ -253,14 +253,14 @@ app.post("/relay", async (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 MeshT Relayer running on http://0.0.0.0:${PORT}`);
-  console.log(`   Accessible from phone at: http://172.16.41.78:${PORT}`);
+  console.log(`   Accessible from phone at: http://172.16.41.80:${PORT}`);
   console.log(`   Network:  ${RPC_URL}`);
   console.log(`   Contract: ${CONTRACT_ADDRESS}`);
   if (RELAYER_PRIVATE_KEY) {
     console.log(`   Relayer:  ${new ethers.Wallet(RELAYER_PRIVATE_KEY).address}`);
   }
-  console.log(`\n   POST http://172.16.41.78:${PORT}/relay`);
-  console.log(`   GET  http://172.16.41.78:${PORT}/health\n`);
+  console.log(`\n   POST http://172.16.41.80:${PORT}/relay`);
+  console.log(`   GET  http://172.16.41.80:${PORT}/health\n`);
 });
 
 module.exports = app;
