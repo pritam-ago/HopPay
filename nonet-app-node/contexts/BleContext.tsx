@@ -44,6 +44,31 @@ const isBleSupported = (): boolean => {
 };
 
 // --- Real Blockchain Transaction Submission ---
+const parseTransactionPayload = (rawMessage: string): TransactionPayload => {
+  const trimmed = rawMessage.trim();
+
+  // Remove a potential BOM and other non-printable chars around the payload.
+  const cleaned = trimmed
+    .replace(/^\uFEFF/, "")
+    .replace(/^[\u0000-\u001F\u007F]+/, "")
+    .replace(/[\u0000-\u001F\u007F]+$/, "");
+
+  try {
+    return JSON.parse(cleaned) as TransactionPayload;
+  } catch {
+    // Fallback for noisy reassembly: try parsing the first JSON object slice.
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+
+    if (start === -1 || end === -1 || end <= start) {
+      throw new Error("No JSON object found in payload");
+    }
+
+    const jsonSlice = cleaned.slice(start, end + 1);
+    return JSON.parse(jsonSlice) as TransactionPayload;
+  }
+};
+
 export const submitTransactionToBlockchain = async (
   originalMessage: string
 ): Promise<string> => {
@@ -57,11 +82,12 @@ export const submitTransactionToBlockchain = async (
     // Parse the transaction payload
     let transactionPayload: TransactionPayload;
     try {
-      transactionPayload = JSON.parse(originalMessage);
+      transactionPayload = parseTransactionPayload(originalMessage);
       console.log("🌐 [BLOCKCHAIN] Payload parsed successfully");
     } catch (parseError: any) {
       const errorMsg = `Failed to parse transaction payload: ${parseError?.message || String(parseError)}`;
       console.error("❌ [BLOCKCHAIN]", errorMsg);
+      console.error("❌ [BLOCKCHAIN] Raw payload preview:", originalMessage.substring(0, 180));
       return JSON.stringify({
         success: false,
         error: errorMsg,

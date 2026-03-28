@@ -110,7 +110,7 @@ Large messages are fragmented to fit within BLE's 31-byte advertisement limit:
 
 ```typescript
 const HEADER_SIZE = 3;
-const DATA_PER_CHUNK = 8;
+const DATA_PER_CHUNK = 6;
 const MAX_PAYLOAD_SIZE = HEADER_SIZE + DATA_PER_CHUNK;
 ```
 
