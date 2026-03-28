@@ -8,7 +8,7 @@ import { useWallet } from "@/contexts/WalletContext";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
-  primary: "#3B82F6", text: "#F8FAFC", textMuted: "#94A3B8"
+  primary: "#79D93E", text: "#F8FAFC", textMuted: "#94A3B8"
 };
 
 // --- QR Parsing logic from SMS branch ---
@@ -28,10 +28,11 @@ export function parseMerchantQR(raw: string): MerchantQRData | null {
     return { toAddress: trimmed };
   }
 
-  // 2. meshpay:// URI
-  if (trimmed.startsWith("meshpay://")) {
+  // 2. meshpay:// or hoppay:// URI
+  if (trimmed.startsWith("meshpay://") || trimmed.startsWith("hoppay://")) {
     try {
-      const url = new URL(trimmed.replace("meshpay://", "https://meshpay/"));
+      const normalized = trimmed.replace("meshpay://", "https://fake/").replace("hoppay://", "https://fake/");
+      const url = new URL(normalized);
       const address = url.pathname.replace(/^\//, "");
       if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return null;
       return {
@@ -120,7 +121,7 @@ export default function QRScanner(): React.JSX.Element {
     if (!parsed) {
       Alert.alert(
         "Unrecognized QR Code",
-        "Supported formats: Ethereum address (0x…), UPI QR, meshpay:// URI, or JSON.",
+        "Supported formats: Ethereum address (0x…), UPI QR, hoppay:// URI, or JSON.",
         [{ text: "OK", onPress: () => setScanned(false) }]
       );
       return;

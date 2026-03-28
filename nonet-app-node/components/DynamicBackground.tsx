@@ -7,8 +7,8 @@ export default function DynamicBackground() {
     <View style={styles.container} pointerEvents="none">
       <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "#000000" }} />
       <LinearGradient
-        colors={["#0D2818", "#000000", "#000000"]}
-        locations={[0, 0.45, 1]}
+        colors={["#0D2818", "#000000", "#0D2818"]}
+        locations={[0, 0.5, 1]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFillObject}

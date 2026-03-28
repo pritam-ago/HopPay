@@ -14,6 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { Stack, router } from "expo-router";
+import * as Clipboard from "expo-clipboard";
 
 import { useWallet } from "@/contexts/WalletContext";
 import { useBle } from "@/contexts/BleContext";
@@ -26,7 +27,7 @@ const THEME = {
   bg: "#0F172A",
   glassBg: "rgba(255, 255, 255, 0.08)",
   glassBorder: "rgba(255, 255, 255, 0.2)",
-  primary: "#3B82F6",
+  primary: "#79D93E",
   secondary: "#8B5CF6",
   success: "#10B981",
   danger: "#EF4444",
@@ -144,6 +145,13 @@ export default function ReceiveScreen(): React.JSX.Element {
     for (const v of pending) await relayVoucher(v);
   };
 
+  const copyToClipboard = async () => {
+    if (userWalletAddress) {
+      await Clipboard.setStringAsync(userWalletAddress);
+      Alert.alert("Copied!", "Wallet address securely copied to clipboard.");
+    }
+  };
+
   const clearHistory = () => {
     Alert.alert("Clear History", "Remove all received vouchers?", [
       { text: "Cancel", style: "cancel" },
@@ -193,9 +201,13 @@ export default function ReceiveScreen(): React.JSX.Element {
             <View style={styles.qrWrapper}>
               <QRCode value={userWalletAddress} size={200} color="#000" backgroundColor="#FFF" />
             </View>
-            <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">
-              {userWalletAddress}
-            </Text>
+            <View style={styles.addressBox}>
+              <Text style={styles.addressTextFull}>{userWalletAddress}</Text>
+              <TouchableOpacity style={styles.copyButton} onPress={copyToClipboard}>
+                <Feather name="copy" size={16} color={THEME.bg} />
+                <Text style={styles.copyButtonText}>Copy</Text>
+              </TouchableOpacity>
+            </View>
           </BlurView>
         </View>
 
@@ -278,7 +290,10 @@ const styles = StyleSheet.create({
   qrCard: { width: "100%", borderRadius: 24, padding: 32, alignItems: "center", backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1 },
   sectionLabel: { fontSize: 12, fontWeight: "800", color: THEME.textMuted, letterSpacing: 2, marginBottom: 24, textTransform: "uppercase" },
   qrWrapper: { padding: 16, backgroundColor: "#FFF", borderRadius: 24, marginBottom: 24 },
-  addressText: { fontSize: 12, fontFamily: "monospace", color: THEME.textMuted, paddingHorizontal: 16, textAlign: "center" },
+  addressBox: { backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 16, padding: 16, width: "100%", alignItems: "center", borderWidth: 1, borderColor: THEME.glassBorder },
+  addressTextFull: { fontSize: 13, fontFamily: "monospace", color: THEME.textMuted, textAlign: "center", marginBottom: 16 },
+  copyButton: { backgroundColor: THEME.primary, flexDirection: "row", alignItems: "center", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20 },
+  copyButtonText: { color: THEME.bg, fontSize: 14, fontWeight: "800", marginLeft: 8 },
   listeningSection: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16, marginHorizontal: 24, borderRadius: 16, borderWidth: 1, borderColor: THEME.glassBorder, marginTop: 24, overflow: "hidden" },
   pulseDot: { width: 14, height: 14, borderRadius: 7, marginRight: 12 },
   listeningText: { flex: 1, fontSize: 14, fontWeight: "600", color: THEME.text },

@@ -14,7 +14,7 @@ import { ethers } from "ethers";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
-  primary: "#3B82F6", secondary: "#8B5CF6", success: "#10B981", text: "#F8FAFC", textMuted: "#94A3B8",
+  primary: "#79D93E", secondary: "#8B5CF6", success: "#10B981", text: "#F8FAFC", textMuted: "#94A3B8",
 };
 
 const MOCK_DB: Record<string, string> = {
@@ -222,7 +222,7 @@ export default function TransactionPage(): React.JSX.Element {
                 <Text style={styles.sectionTitle}>Who are you paying?</Text>
                 <View style={styles.inputContainer}>
                   <Feather name="at-sign" size={20} color={THEME.textMuted} style={{ marginRight: 12 }} />
-                  <TextInput style={styles.textInput} placeholder="name@hoppay, 0x..., or UPI code" placeholderTextColor={THEME.textMuted} value={receiverId} onChangeText={setReceiverId} autoCapitalize="none" autoCorrect={false} />
+                  <TextInput style={styles.textInput} placeholder="@hoppay, Wallet ID, or UPI" placeholderTextColor={THEME.textMuted} value={receiverId} onChangeText={setReceiverId} autoCapitalize="none" autoCorrect={false} />
                 </View>
                 <TouchableOpacity style={styles.scanBtn} onPress={() => router.push("/scan")}>
                   <Feather name="maximize" size={20} color={THEME.text} style={{ marginRight: 8 }} />
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
   glassCard: { borderRadius: 24, padding: 24, backgroundColor: THEME.glassBg, borderColor: THEME.glassBorder, borderWidth: 1, overflow: "hidden" },
   sectionTitle: { fontSize: 24, fontWeight: "800", color: THEME.text, marginBottom: 24 },
   inputContainer: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 16, paddingHorizontal: 16, height: 60, borderWidth: 1, borderColor: THEME.glassBorder, marginBottom: 16 },
-  textInput: { flex: 1, color: THEME.text, fontSize: 16 },
+  textInput: { flex: 1, color: THEME.text, fontSize: 13 },
   scanBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, marginBottom: 24, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 16, borderWidth: 1, borderColor: THEME.glassBorder },
   scanText: { color: THEME.text, fontWeight: "700", fontSize: 14 },
   recentHeader: { marginBottom: 20 },

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
+  Alert,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
@@ -21,7 +22,7 @@ const THEME = {
   bg: "#0F172A",
   glassBg: "rgba(255, 255, 255, 0.08)",
   glassBorder: "rgba(255, 255, 255, 0.2)",
-  primary: "#3B82F6",
+  primary: "#79D93E",
   secondary: "#8B5CF6",
   success: "#10B981",
   danger: "#EF4444",
@@ -37,7 +38,7 @@ interface UserProfile {
 }
 
 export default function SettingsDashboard(): React.JSX.Element {
-  const { userWalletAddress } = useWallet();
+  const { userWalletAddress, logout } = useWallet();
   const bleContext = useBle() as any;
   const isRelayEnabled = bleContext.isRelayEnabled ?? true;
   const setIsRelayEnabled = bleContext.setIsRelayEnabled;
@@ -196,6 +197,26 @@ export default function SettingsDashboard(): React.JSX.Element {
           
           <BlurView intensity={50} tint="dark" style={[styles.menuCard, { borderColor: "rgba(239,68,68,0.3)" }]}>
             
+            {/* Log Out */}
+            <TouchableOpacity style={styles.menuRow} onPress={() => {
+              Alert.alert("Log Out", "Are you sure you want to end your session?", [
+                { text: "Cancel", style: "cancel" },
+                { text: "Log Out", style: "destructive", onPress: async () => {
+                   await AsyncStorage.removeItem("@user_profile");
+                   await logout();
+                   router.replace("/");
+                }}
+              ]);
+            }}>
+              <View style={[styles.menuIconBox, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
+                <Feather name="log-out" size={20} color="#F59E0B" />
+              </View>
+              <Text style={[styles.menuLabel, { color: "#F59E0B" }]}>Log Out</Text>
+              <Feather name="chevron-right" size={20} color="#F59E0B" />
+            </TouchableOpacity>
+
+            <View style={styles.rowDivider} />
+
             {/* Delete Account */}
             <TouchableOpacity style={styles.menuRow} onPress={() => handleMenuPress("/settings/delete-account")}>
               <View style={[styles.menuIconBox, { backgroundColor: "rgba(239, 68, 68, 0.15)" }]}>
@@ -270,11 +291,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: THEME.text,
     marginBottom: 4,
+    textAlign: "center",
   },
   userHandle: {
     fontSize: 16,
     fontWeight: "600",
     color: THEME.primary,
+    textAlign: "center",
   },
   divider: {
     width: "100%",

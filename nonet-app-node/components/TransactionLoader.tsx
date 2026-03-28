@@ -972,7 +972,7 @@ const THEME = {
   bg: "#0F172A",
   glassBg: "rgba(255, 255, 255, 0.1)",
   glassBorder: "rgba(255, 255, 255, 0.2)",
-  primary: "#3B82F6",
+  primary: "#79D93E",
   success: "#10B981",
   text: "#F8FAFC",
   textMuted: "#94A3B8"

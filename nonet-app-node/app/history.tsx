@@ -7,7 +7,7 @@ import DynamicBackground from "@/components/DynamicBackground";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
-  primary: "#3B82F6", success: "#10B981", danger: "#EF4444", text: "#F8FAFC", textMuted: "#94A3B8"
+  primary: "#79D93E", success: "#10B981", danger: "#EF4444", text: "#F8FAFC", textMuted: "#94A3B8"
 };
 
 const DB_HISTORY = [

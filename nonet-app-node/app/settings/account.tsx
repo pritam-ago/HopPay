@@ -8,7 +8,7 @@ import DynamicBackground from "@/components/DynamicBackground";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.08)", glassBorder: "rgba(255, 255, 255, 0.2)",
-  primary: "#3B82F6", text: "#F8FAFC", textMuted: "#94A3B8"
+  primary: "#79D93E", text: "#F8FAFC", textMuted: "#94A3B8"
 };
 
 export default function AccountDetails(): React.JSX.Element {

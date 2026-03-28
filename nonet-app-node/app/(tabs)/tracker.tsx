@@ -4,18 +4,45 @@ import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router, Stack } from "expo-router";
 import DynamicBackground from "@/components/DynamicBackground";
+import { useBle } from "@/contexts/BleContext";
+import { ethers } from "ethers";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
-  primary: "#3B82F6", success: "#10B981", danger: "#EF4444", text: "#F8FAFC", textMuted: "#94A3B8"
+  primary: "#79D93E", success: "#10B981", danger: "#EF4444", text: "#F8FAFC", textMuted: "#94A3B8"
 };
 
-const ONGOING_TX = [
-  { id: "tx-24", name: "David (Offline)", to: "david@hoppay", amount: "15", time: "Just now", status: "Propagating via Mesh (Hop 2)", stage: "2" },
-  { id: "tx-22", name: "Alice", to: "alice@hoppay", amount: "50", time: "4 mins ago", status: "Awaiting Gateway ACK", stage: "3" }
-];
-
 export default function OngoingTrackerScreen(): React.JSX.Element {
+  const { masterState } = useBle();
+
+  // Show only real-time physical BLE states
+  const liveList = React.useMemo(() => {
+    return Array.from(masterState.entries())
+      .filter(([id, state]) => !state.isAck) // Show transactions still waiting on grid
+      .map(([id, state]) => {
+        let to = "Unknown";
+        let amt = "0";
+        try {
+          const payload = JSON.parse(state.fullMessage);
+          to = payload.parameters?.to || "Unknown node";
+          if (payload.parameters?.value) {
+            amt = parseFloat(ethers.formatUnits(payload.parameters.value, 18)).toFixed(2).replace(/\.00$/, '');
+          }
+        } catch {}
+
+        return {
+          id: `live-${id}`,
+          name: "Live Propagating Node",
+          to: to,
+          amount: amt,
+          time: "Just now",
+          status: `Propagating Packets (${state.chunks.size}/${state.totalChunks || "?"})`,
+          stage: "2",
+          viaInternet: "false"
+        };
+      });
+  }, [masterState]);
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -28,14 +55,14 @@ export default function OngoingTrackerScreen(): React.JSX.Element {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Text style={styles.sectionTitle}>Ongoing Transactions</Text>
         
-        {ONGOING_TX.length === 0 ? (
+        {liveList.length === 0 ? (
           <Text style={{ color: THEME.textMuted, textAlign: "center", marginTop: 40 }}>No active mesh transactions.</Text>
         ) : (
           <View style={styles.listContainer}>
-            {ONGOING_TX.map((tx) => (
+            {liveList.map((tx) => (
               <TouchableOpacity 
                 key={tx.id} 
-                onPress={() => router.push({ pathname: "/mesh-progress", params: { to: tx.to, amt: tx.amount, currentStage: tx.stage } })}
+                onPress={() => router.push({ pathname: "/mesh-progress", params: { to: tx.to, amt: tx.amount, currentStage: tx.stage, viaInternet: tx.viaInternet, txId: tx.id } })}
               >
                 <BlurView intensity={80} tint="dark" style={styles.txCard}>
                   <View style={styles.txIconBox}>

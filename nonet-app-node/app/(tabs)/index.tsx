@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, RefreshControl, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, RefreshControl, TextInput, ActivityIndicator, LayoutAnimation } from "react-native";
 import { BlurView } from "expo-blur";
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -13,7 +13,7 @@ import { ethers } from "ethers";
 
 const THEME = {
   bg: "#0F172A", glassBg: "rgba(255, 255, 255, 0.15)", glassBorder: "rgba(255, 255, 255, 0.25)",
-  primary: "#3B82F6", secondary: "#8B5CF6", success: "#10B981", text: "#F8FAFC", textMuted: "#94A3B8", danger: "#EF4444"
+  primary: "#79D93E", secondary: "#8B5CF6", success: "#10B981", text: "#F8FAFC", textMuted: "#94A3B8", danger: "#EF4444"
 };
 
 const MOCK_TRANSACTIONS = [
@@ -24,10 +24,14 @@ const MOCK_TRANSACTIONS = [
 ];
 
 const MOCK_PEOPLE = [
-  { id: "alice@hoppay", name: "Alice", letter: "A", color: "#3B82F6" },
+  { id: "alice@hoppay", name: "Alice", letter: "A", color: "#79D93E" },
   { id: "bob@hoppay", name: "Bob", letter: "B", color: "#8B5CF6" },
   { id: "merchant@icici", name: "Merchant", letter: "M", color: "#10B981" },
   { id: "david@hoppay", name: "David", letter: "D", color: "#F59E0B" },
+  { id: "emma@hoppay", name: "Emma", letter: "E", color: "#EF4444" },
+  { id: "frank@hoppay", name: "Frank", letter: "F", color: "#3B82F6" },
+  { id: "grace@hoppay", name: "Grace", letter: "G", color: "#8B5CF6" },
+  { id: "harry@hoppay", name: "Harry", letter: "H", color: "#10B981" },
 ];
 
 export default function HomeDashboard(): React.JSX.Element {
@@ -42,6 +46,19 @@ export default function HomeDashboard(): React.JSX.Element {
   const [isBalanceVisible, setIsBalanceVisible] = useState(false);
   const [tokenBalance, setTokenBalance] = useState<string | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [showAllPeople, setShowAllPeople] = useState(false);
+
+  const toggleShowAll = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowAllPeople(!showAllPeople);
+  };
+
+  const getFormattedName = (fullName: string) => {
+    if (!fullName) return "User";
+    const parts = fullName.trim().split(" ");
+    if (parts.length === 1) return parts[0];
+    return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+  };
 
   // Fetch MeshT token balance from the contract (Integrated from SMS branch)
   const fetchTokenBalance = useCallback(async () => {
@@ -108,7 +125,7 @@ export default function HomeDashboard(): React.JSX.Element {
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.push("/(tabs)/show")}>
             <Text style={styles.greeting}>Hello,</Text>
-            <Text style={styles.handleText}>{profile?.name || "Ravi Kumar"}</Text>
+            <Text style={styles.handleText}>{getFormattedName(profile?.name || "Ravi Kumar")}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.networkBadge, { borderColor: isRelayEnabled ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)" }]} onPress={handleToggleOffline}>
             <View style={[styles.statusDot, { backgroundColor: isRelayEnabled ? THEME.success : THEME.danger }]} />
@@ -155,10 +172,10 @@ export default function HomeDashboard(): React.JSX.Element {
 
         <View style={styles.transactionsHeader}>
           <Text style={styles.sectionTitle}>People</Text>
-          <TouchableOpacity><Text style={styles.seeAll}>See All</Text></TouchableOpacity>
+          <TouchableOpacity onPress={toggleShowAll}><Text style={styles.seeAll}>{showAllPeople ? "Show Less" : "See All"}</Text></TouchableOpacity>
         </View>
         <View style={styles.gridContainer}>
-          {MOCK_PEOPLE.map((person) => (
+          {(showAllPeople ? MOCK_PEOPLE : MOCK_PEOPLE.slice(0, 4)).map((person) => (
             <TouchableOpacity key={person.id} style={styles.gridItem} onPress={() => router.push({ pathname: "/transaction", params: { initId: person.id } })}>
               <View style={[styles.personAvatar, { backgroundColor: person.color }]}><Text style={styles.personInitial}>{person.letter}</Text></View>
               <Text style={styles.personName}>{person.name}</Text>
