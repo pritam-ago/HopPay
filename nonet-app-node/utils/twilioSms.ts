@@ -1,13 +1,10 @@
 // ─── Direct Twilio SMS (calls Twilio API from the phone) ──────────────────────
 // For hackathon demo only — in production, credentials should be on a server.
 
-// Credentials loaded from gitignored config file
-import twilioConfig from "./twilioConfig.json";
-
-const TWILIO_ACCOUNT_SID = twilioConfig.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = twilioConfig.TWILIO_AUTH_TOKEN;
-const TWILIO_FROM_NUMBER = twilioConfig.TWILIO_FROM_NUMBER;
-const DEMO_MERCHANT_PHONE = twilioConfig.DEMO_MERCHANT_PHONE;
+const TWILIO_ACCOUNT_SID = "ACbf7b97ba684ac820aec4eb5c3092924c";
+const TWILIO_AUTH_TOKEN = "ab7c01b507b9d38a9f163a5e784e6ac0";
+const TWILIO_FROM_NUMBER = "+14788126802";
+const DEMO_MERCHANT_PHONE = "9344790864";
 
 /**
  * Extract a 10-digit Indian mobile number from a UPI ID.

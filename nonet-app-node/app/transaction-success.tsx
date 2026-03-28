@@ -21,21 +21,22 @@ export default function TransactionSuccessPage(): React.JSX.Element {
     amount, currency, toAddress, chain, txHash, timestamp, fullMessage,
     upiId, merchantName, merchantPhone,
   } = useLocalSearchParams<{
-      amount: string;
-      currency: string;
-      toAddress: string;
-      chain: string;
-      txHash: string;
-      timestamp: string;
-      fullMessage?: string;
-      upiId?: string;
-      merchantName?: string;
-      merchantPhone?: string;
-    }>();
+    amount: string;
+    currency: string;
+    toAddress: string;
+    chain: string;
+    txHash: string;
+    timestamp: string;
+    fullMessage?: string;
+    upiId?: string;
+    merchantName?: string;
+    merchantPhone?: string;
+  }>();
 
   // SMS state
   const [smsStatus, setSmsStatus] = useState<"sending" | "sent" | "failed" | "none">("none");
   const [smsPhone, setSmsPhone] = useState<string>("");
+  const [smsError, setSmsError] = useState<string>("");
 
   const handleGoHome = () => {
     router.replace("/");
@@ -70,10 +71,12 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           setSmsPhone(result.phone || "");
         } else {
           setSmsStatus("failed");
+          setSmsError(result.error || "Unknown error");
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("[SMS] Error:", err);
         setSmsStatus("failed");
+        setSmsError(err?.message || String(err));
       }
     };
 
@@ -106,8 +109,8 @@ export default function TransactionSuccessPage(): React.JSX.Element {
           <Card style={[
             styles.smsCard,
             smsStatus === "sent" ? styles.smsCardSuccess :
-            smsStatus === "failed" ? styles.smsCardFailed :
-            styles.smsCardSending
+              smsStatus === "failed" ? styles.smsCardFailed :
+                styles.smsCardSending
           ]} elevation={2}>
             <Card.Content style={styles.smsContent}>
               <Text style={styles.smsIcon}>
@@ -116,12 +119,17 @@ export default function TransactionSuccessPage(): React.JSX.Element {
               <View style={styles.smsTextContainer}>
                 <Text variant="titleSmall" style={styles.smsTitle}>
                   {smsStatus === "sending" ? "Sending SMS notification..."
-                   : smsStatus === "sent" ? "SMS Sent to Merchant!"
-                   : "SMS notification failed"}
+                    : smsStatus === "sent" ? "SMS Sent to Merchant!"
+                      : "SMS notification failed"}
                 </Text>
                 {smsStatus === "sent" && smsPhone ? (
                   <Text variant="bodySmall" style={styles.smsPhone}>
                     Sent to +91{smsPhone}
+                  </Text>
+                ) : null}
+                {smsStatus === "failed" && smsError ? (
+                  <Text variant="bodySmall" style={styles.smsErrorText}>
+                    Error: {smsError}
                   </Text>
                 ) : null}
               </View>
@@ -273,6 +281,7 @@ const styles = StyleSheet.create({
   smsTextContainer: { flex: 1 },
   smsTitle: { fontWeight: "700", color: "#333" },
   smsPhone: { color: "#666", marginTop: 2 },
+  smsErrorText: { color: "#D32F2F", marginTop: 4, fontSize: 12 },
 
   // QR Code
   qrCard: { marginBottom: 24, backgroundColor: "#FFFFFF" },
