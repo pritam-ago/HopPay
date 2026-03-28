@@ -6,6 +6,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
 const { triggerInrPayout, meshtToInr } = require("./payout");
+const { sendCreditSms, extractPhoneFromUpi } = require("./sms.cjs");
 
 dotenv.config();
 
@@ -205,12 +206,10 @@ app.post("/relay", async (req, res) => {
       console.log(`[PAYOUT] ₹${amountInr} → ${upiId}`);
       payoutResult = await triggerInrPayout(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
       pendingItem.payoutResult = payoutResult;
-      
+
       // Log transaction status from Decentro
       if (payoutResult?.transactionStatus) {
         console.log(`[PAYOUT] Decentro Transaction Status: ${payoutResult.transactionStatus}`);
-        
-        // Warn if transaction is pending (not immediately settled)
         if (payoutResult.transactionStatus === "pending") {
           console.warn(`[PAYOUT] ⚠️  Transaction is PENDING - settlement not immediate`);
         } else if (payoutResult.transactionStatus === "failure") {
@@ -218,6 +217,21 @@ app.post("/relay", async (req, res) => {
         } else if (payoutResult.transactionStatus === "success") {
           console.log(`[PAYOUT] ✅ Transaction SUCCESS at Decentro`);
         }
+      }
+
+      // 🎯 Demo effect: send a real bank-style credit SMS to the merchant's phone
+      // Priority: (1) phone extracted from UPI ID, (2) phone from app payload, (3) .env fallback
+      const phoneFromUpi = extractPhoneFromUpi(upiId);
+      const merchantPhone = phoneFromUpi || (payload as any).merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+
+      if (phoneFromUpi) {
+        console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      }
+
+      if (merchantPhone) {
+        const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+        sendCreditSms(merchantPhone, amountInr, shortRef, (payload as any).merchantName ?? "Merchant")
+          .catch((e: any) => console.error("[SMS] Failed:", e.message));
       }
     } else {
       console.log(`[PAYOUT] No UPI ID provided — skipping INR payout (crypto-only mode)`);
