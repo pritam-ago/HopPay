@@ -10,11 +10,10 @@ export const CONTRACT_CONFIG = {
   // Token name for EIP-712 domain (must match contract deployment)
   TOKEN_NAME: "MESHT", // Update this if your contract uses a different name
   TOKEN_VERSION: "1", // EIP-712 version from contract
-  // Relayer URL — must be your Mac's LAN IP, NOT "localhost".
-  // "localhost" on the phone means the phone itself, not your Mac.
-  // Phone and Mac must both be on the same WiFi network.
-  // Current Mac LAN IP: 172.16.41.80 (run `ifconfig | grep "inet "` to update if it changes)
-  RELAYER_URL: "http://172.16.41.78:3001/relay",
+  // Relayer URL — Using ngrok tunnel for public access
+  // ngrok forwards https://subdistinctively-traceless-quintin.ngrok-free.dev -> localhost:80
+  // Update this URL with your ngrok URL (changes each time you restart ngrok)
+  RELAYER_URL: "https://subdistinctively-traceless-quintin.ngrok-free.dev/relay",
 };
 
 // Contract ABI for transferWithAuthorization function and balanceOf
