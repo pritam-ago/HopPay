@@ -12,9 +12,8 @@ export const CONTRACT_CONFIG = {
   TOKEN_VERSION: "1", // EIP-712 version from contract
   // Relayer URL — must be your Mac's LAN IP, NOT "localhost".
   // "localhost" on the phone means the phone itself, not your Mac.
-  // Phone and Mac must both be on the same WiFi network.
-  // Current Mac LAN IP: 172.16.41.80 (run `ifconfig | grep "inet "` to update if it changes)
-  RELAYER_URL: "http://172.16.41.80:3001/relay",
+  // ngrok public URL — works from anywhere, no WiFi needed
+  RELAYER_URL: "https://viva-supermodest-inviably.ngrok-free.dev/relay",
 };
 
 // Contract ABI for transferWithAuthorization function and balanceOf

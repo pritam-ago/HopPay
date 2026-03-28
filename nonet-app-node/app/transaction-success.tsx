@@ -12,7 +12,7 @@ import {
 import { useLocalSearchParams, router } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
 import { useBle } from "@/contexts/BleContext";
-import { sendSmsDirect } from "@/utils/twilioSms";
+import { CONTRACT_CONFIG } from "@/constants/contracts";
 
 export default function TransactionSuccessPage(): React.JSX.Element {
   const theme = useTheme();
@@ -50,28 +50,36 @@ export default function TransactionSuccessPage(): React.JSX.Element {
     stopBroadcasting();
   }, [stopBroadcasting]);
 
-  // ── Trigger SMS DIRECTLY via Twilio (no relayer needed) ────────────────────
+  // ── Trigger SMS via relayer (ngrok) ────────────────────────────────────────
   useEffect(() => {
     const triggerSms = async () => {
       setSmsStatus("sending");
       try {
-        console.log("[SMS] Calling Twilio directly from phone...");
-        const result = await sendSmsDirect({
-          upiId: upiId || undefined,
-          merchantPhone: merchantPhone || undefined,
-          amount: amount || "0",
-          txHash: txHash || "",
-          merchantName: merchantName || "Merchant",
+        // Call the relayer's /send-sms endpoint via ngrok
+        const smsUrl = CONTRACT_CONFIG.RELAYER_URL.replace("/relay", "/send-sms");
+        console.log("[SMS] Calling relayer at:", smsUrl);
+
+        const res = await fetch(smsUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            upiId: upiId || undefined,
+            merchantPhone: merchantPhone || undefined,
+            amount: amount || "0",
+            txHash: txHash || "",
+            merchantName: merchantName || "Merchant",
+          }),
         });
 
-        console.log("[SMS] Result:", result);
+        const data = await res.json();
+        console.log("[SMS] Response:", data);
 
-        if (result.success) {
+        if (data.success) {
           setSmsStatus("sent");
-          setSmsPhone(result.phone || "");
+          setSmsPhone(data.phone || "");
         } else {
           setSmsStatus("failed");
-          setSmsError(result.error || "Unknown error");
+          setSmsError(data.error || data.smsResult?.reason || "Unknown error");
         }
       } catch (err: any) {
         console.error("[SMS] Error:", err);
