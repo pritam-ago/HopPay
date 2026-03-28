@@ -154,6 +154,37 @@ app.get("/queue", (_req, res) => {
   res.json({ count: items.length, items });
 });
 
+// ─── Test SMS Endpoint ────────────────────────────────────────────────────────
+// Test endpoint to verify Twilio credentials
+app.get("/test-sms", async (req, res) => {
+  console.log("[TEST-SMS] Testing Twilio configuration...");
+  
+  const testPhone = process.env.DEMO_MERCHANT_PHONE || "8220811320";
+  const testAmount = 100;
+  const testRef = "TEST123";
+  
+  console.log(`[TEST-SMS] Sending test SMS to ${testPhone}`);
+  
+  try {
+    const result = await sendCreditSms(testPhone, testAmount, testRef, "Test Merchant");
+    console.log("[TEST-SMS] Result:", result);
+    
+    res.json({
+      success: result.success,
+      phone: `+91${testPhone}`,
+      result,
+      credentials: {
+        accountSid: process.env.TWILIO_ACCOUNT_SID ? `${process.env.TWILIO_ACCOUNT_SID.slice(0, 10)}...` : "NOT SET",
+        authToken: process.env.TWILIO_AUTH_TOKEN ? "SET (hidden)" : "NOT SET",
+        fromNumber: process.env.TWILIO_FROM_NUMBER || "NOT SET",
+      }
+    });
+  } catch (err) {
+    console.error("[TEST-SMS] Error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── Standalone SMS notification endpoint ─────────────────────────────────────
 // The app calls this AFTER a successful on-chain transaction to trigger
 // the merchant SMS — no need for the full relay flow.
@@ -162,33 +193,51 @@ app.post("/send-sms", async (req, res) => {
     const { upiId, merchantPhone, amount, txHash, merchantName } = req.body;
     console.log(`[SMS-ENDPOINT] Request: upiId=${upiId} phone=${merchantPhone} amount=${amount} txHash=${txHash}`);
 
-    // Determine phone number: from UPI ID, explicit phone, or .env fallback
-    const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
-    const phone = phoneFromUpi || merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+    let phone = null;
+    let phoneSource = null;
 
-    if (phoneFromUpi) {
-      console.log(`[SMS-ENDPOINT] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
-    } else if (merchantPhone) {
+    // Priority 1: Extract phone from UPI ID
+    if (upiId) {
+      const phoneFromUpi = extractPhoneFromUpi(upiId);
+      if (phoneFromUpi) {
+        phone = phoneFromUpi;
+        phoneSource = `UPI ID "${upiId}"`;
+        console.log(`[SMS-ENDPOINT] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      } else {
+        console.warn(`[SMS-ENDPOINT] ⚠️ Could not extract phone from UPI ID "${upiId}" - UPI format may not contain phone number`);
+      }
+    }
+
+    // Priority 2: Use provided merchant phone
+    if (!phone && merchantPhone) {
+      phone = merchantPhone;
+      phoneSource = "provided merchant phone";
       console.log(`[SMS-ENDPOINT] 📱 Using provided merchant phone: ${merchantPhone}`);
-    } else if (process.env.DEMO_MERCHANT_PHONE) {
-      console.log(`[SMS-ENDPOINT] 📱 Using DEMO_MERCHANT_PHONE from environment: ${process.env.DEMO_MERCHANT_PHONE}`);
+    }
+
+    // Priority 3: FALLBACK ONLY - Use DEMO_MERCHANT_PHONE if UPI ID exists but extraction failed
+    if (!phone && upiId && process.env.DEMO_MERCHANT_PHONE) {
+      phone = process.env.DEMO_MERCHANT_PHONE;
+      phoneSource = "DEMO_MERCHANT_PHONE (fallback for UPI payment)";
+      console.log(`[SMS-ENDPOINT] 📱 Using DEMO_MERCHANT_PHONE as fallback: ${process.env.DEMO_MERCHANT_PHONE}`);
     }
 
     if (!phone) {
-      console.warn("[SMS-ENDPOINT] ⚠️ No phone number available (no UPI ID, merchantPhone, or DEMO_MERCHANT_PHONE)");
-      return res.status(400).json({ success: false, error: "No phone number available - set DEMO_MERCHANT_PHONE in .env" });
+      console.warn("[SMS-ENDPOINT] ⚠️ No phone number available - cannot send SMS");
+      return res.status(400).json({ success: false, error: "No phone number available" });
     }
 
     const amountNum = parseFloat(amount) || 0;
     const shortRef = txHash ? `MeshT${txHash.slice(2, 8).toUpperCase()}` : `MeshT${Date.now().toString(36).toUpperCase()}`;
 
-    console.log(`[SMS-ENDPOINT] 📤 Sending SMS to ${phone} for amount ₹${amountNum} (ref: ${shortRef})`);
+    console.log(`[SMS-ENDPOINT] 📤 Sending SMS to ${phone} (from ${phoneSource}) for amount ₹${amountNum} (ref: ${shortRef})`);
     const smsResult = await sendCreditSms(phone, amountNum, shortRef, merchantName || "Merchant");
-    console.log(`[SMS-ENDPOINT] Result:`, smsResult);
+    console.log(`[SMS-ENDPOINT] ✅ Result:`, smsResult);
 
     return res.json({
       success: smsResult.success,
       phone,
+      phoneSource,
       smsResult,
     });
   } catch (err) {
@@ -244,25 +293,49 @@ app.post("/relay", async (req, res) => {
 
     // ── SMS Notification ───────────────────────────────────────────────────────
     const upiId = payload.upiId ?? null;
-    const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
-    const merchantPhone = phoneFromUpi || payload.merchantPhone || process.env.DEMO_MERCHANT_PHONE;
     
-    if (phoneFromUpi) {
-      console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
-    } else if (payload.merchantPhone) {
-      console.log(`[SMS] 📱 Using provided merchant phone: ${payload.merchantPhone}`);
-    } else if (process.env.DEMO_MERCHANT_PHONE) {
-      console.log(`[SMS] 📱 Using DEMO_MERCHANT_PHONE from environment: ${process.env.DEMO_MERCHANT_PHONE}`);
-    }
-
-    if (merchantPhone) {
-      const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
-      const amountInr = parseFloat(ethers.formatUnits(parameters.value, 18)) * 100; // Assuming 1 MESHT = ₹100
-      console.log(`[SMS] 📤 Sending to ${merchantPhone} for ₹${amountInr} (ref: ${shortRef})`);
-      sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
-        .catch(e => console.error("[SMS] ❌ Failed:", e.message));
+    // Only attempt SMS if we have a UPI ID or merchant phone
+    if (!upiId && !payload.merchantPhone) {
+      console.log("[SMS] ⏭️  No UPI ID or merchant phone - skipping SMS notification");
     } else {
-      console.warn("[SMS] ⚠️ No phone number available - skipping SMS (set DEMO_MERCHANT_PHONE in .env)");
+      let merchantPhone = null;
+      let phoneSource = null;
+
+      // Priority 1: Extract phone from UPI ID
+      if (upiId) {
+        const phoneFromUpi = extractPhoneFromUpi(upiId);
+        if (phoneFromUpi) {
+          merchantPhone = phoneFromUpi;
+          phoneSource = `UPI ID "${upiId}"`;
+          console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+        } else {
+          console.warn(`[SMS] ⚠️ Could not extract phone from UPI ID "${upiId}"`);
+        }
+      }
+
+      // Priority 2: Use provided merchant phone
+      if (!merchantPhone && payload.merchantPhone) {
+        merchantPhone = payload.merchantPhone;
+        phoneSource = "provided merchant phone";
+        console.log(`[SMS] 📱 Using provided merchant phone: ${payload.merchantPhone}`);
+      }
+
+      // Priority 3: FALLBACK ONLY - Use DEMO_MERCHANT_PHONE if UPI ID exists but extraction failed
+      if (!merchantPhone && upiId && process.env.DEMO_MERCHANT_PHONE) {
+        merchantPhone = process.env.DEMO_MERCHANT_PHONE;
+        phoneSource = "DEMO_MERCHANT_PHONE (fallback)";
+        console.log(`[SMS] 📱 Using DEMO_MERCHANT_PHONE as fallback: ${process.env.DEMO_MERCHANT_PHONE}`);
+      }
+
+      if (merchantPhone) {
+        const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+        const amountInr = parseFloat(ethers.formatUnits(parameters.value, 18)) * 100; // Assuming 1 MESHT = ₹100
+        console.log(`[SMS] 📤 Sending to ${merchantPhone} (from ${phoneSource}) for ₹${amountInr} (ref: ${shortRef})`);
+        sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
+          .catch(e => console.error("[SMS] ❌ Failed:", e.message));
+      } else {
+        console.warn("[SMS] ⚠️ Could not determine phone number - skipping SMS");
+      }
     }
 
     pendingQueue.set(itemId, pendingItem);

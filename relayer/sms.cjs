@@ -39,10 +39,14 @@ function buildBankMessage(amountInr, txRef) {
 
 async function sendViaTwilio(phoneE164, message) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER) {
+    console.warn("[SMS] ⚠️ Twilio not configured - missing credentials");
     return null; // not configured — skip
   }
 
   console.log(`[SMS] 🟣 Trying Twilio → ${phoneE164}`);
+  console.log(`[SMS] 🔑 Account SID: ${TWILIO_ACCOUNT_SID.slice(0, 10)}...`);
+  console.log(`[SMS] 📞 From: ${TWILIO_FROM_NUMBER}`);
+  
   try {
     const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
     const params = new URLSearchParams({
@@ -63,10 +67,18 @@ async function sendViaTwilio(phoneE164, message) {
     console.error("[SMS] Twilio unexpected response:", res.data);
     return { success: false, provider: "twilio", error: "No SID in response" };
   } catch (err) {
+    // Enhanced error logging
+    console.error("[SMS] ❌ Twilio error details:");
+    console.error("  Status:", err?.response?.status);
+    console.error("  Status Text:", err?.response?.statusText);
+    console.error("  Error Code:", err?.response?.data?.code);
+    console.error("  Error Message:", err?.response?.data?.message);
+    console.error("  More Info:", err?.response?.data?.more_info);
+    
     const errMsg =
       err?.response?.data?.message || err?.message || "Twilio error";
     console.error("[SMS] ❌ Twilio failed:", errMsg);
-    return { success: false, provider: "twilio", error: errMsg };
+    return { success: false, provider: "twilio", error: errMsg, code: err?.response?.data?.code };
   }
 }
 

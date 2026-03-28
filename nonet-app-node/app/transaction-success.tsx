@@ -59,20 +59,25 @@ export default function TransactionSuccessPage(): React.JSX.Element {
   // ── Trigger SMS on page load ──────────────────────────────────────────────
   useEffect(() => {
     const triggerSms = async () => {
+      // Only send SMS if we have a UPI ID or merchant phone
+      if (!upiId && !merchantPhone) {
+        console.log("[SMS] ⚠️ No UPI ID or merchant phone - skipping SMS (use DEMO fallback only from backend)");
+        return;
+      }
+
       // Extract phone from UPI ID if available
       const phoneFromUpi = upiId ? extractPhoneFromUpi(upiId) : null;
       const finalPhone = phoneFromUpi || merchantPhone;
 
       if (phoneFromUpi) {
         console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      } else if (merchantPhone) {
+        console.log(`[SMS] 📱 Using merchant phone: ${merchantPhone}`);
       }
 
-      // Always send SMS - the backend will use DEMO_MERCHANT_PHONE as fallback
-      console.log("[SMS] 📱 Triggering SMS notification...");
-      if (finalPhone) {
-        console.log(`[SMS] Using phone: ${finalPhone}`);
-      } else {
-        console.log("[SMS] No phone provided - backend will use DEMO_MERCHANT_PHONE fallback");
+      // If we have UPI ID but couldn't extract phone, let backend try with DEMO fallback
+      if (upiId && !finalPhone) {
+        console.log("[SMS] ⚠️ Could not extract phone from UPI ID - backend will try DEMO_MERCHANT_PHONE");
       }
 
       setSmsStatus("sending");
