@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from "react-native";
 import { CameraView, CameraType } from "expo-camera";
+import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { useWallet, ScannedAddress } from "@/contexts/WalletContext";
 import { useBle } from "@/contexts/BleContext";
@@ -281,10 +282,20 @@ export default function Scan(): React.JSX.Element {
           </View>
 
           <View style={styles.userBadgeRow}>
-            <View style={styles.userBadge}>
-              <Text style={styles.userBadgeText}>user@hoppay</Text>
+            <TouchableOpacity 
+              style={styles.userBadge}
+              onPress={async () => {
+                if (userWalletAddress) {
+                  await Clipboard.setStringAsync(userWalletAddress);
+                  Alert.alert("Copied!", "Wallet address copied to clipboard.");
+                }
+              }}
+            >
+              <Text style={styles.userBadgeText}>
+                {userWalletAddress ? `${userWalletAddress.slice(0, 6)}...${userWalletAddress.slice(-4)}` : "No Wallet"}
+              </Text>
               <Feather name="copy" size={14} color="#E0E0E0" style={{ marginLeft: 6 }} />
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
