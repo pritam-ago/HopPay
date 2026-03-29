@@ -1,10 +1,11 @@
 /**
- * Local EIP-712 Signature Verifier
+ * Local Signature Verifier
  *
  * Verifies an EIP-3009 "Ghost Voucher" (TransferWithAuthorization payload)
  * entirely locally — no network or blockchain call required.
  *
- * Uses the same domain/types that AuthAndMintToken.sol and TransactionLoader.tsx use.
+ * Uses the same keccak256(abi.encodePacked(...)) + Ethereum prefix that
+ * the deployed EIPThreeDoubleZeroNine contract and TransactionLoader.tsx use.
  */
 import { ethers } from "ethers";
 import { CONTRACT_CONFIG, TransactionPayload } from "@/constants/contracts";
@@ -21,7 +22,7 @@ export interface VerificationResult {
 }
 
 /**
- * Verify a received Ghost Voucher locally using EIP-712 typed data recovery.
+ * Verify a received Ghost Voucher locally using keccak256 + Ethereum prefix recovery.
  * The merchant calls this the moment they receive a BLE packet — no internet needed.
  */
 export async function verifyGhostVoucher(
@@ -58,39 +59,25 @@ export async function verifyGhostVoucher(
       return { valid: false, error: "Voucher has expired" };
     }
 
-    // Recreate EIP-712 domain — must match what the contract uses
-    const domain = {
-      name: CONTRACT_CONFIG.TOKEN_NAME,
-      version: CONTRACT_CONFIG.TOKEN_VERSION,
-      chainId,
-      verifyingContract: contractAddress,
-    };
-
-    const types = {
-      TransferWithAuthorization: [
-        { name: "from", type: "address" },
-        { name: "to", type: "address" },
-        { name: "value", type: "uint256" },
-        { name: "validAfter", type: "uint256" },
-        { name: "validBefore", type: "uint256" },
-        { name: "nonce", type: "bytes32" },
-      ],
-    };
-
-    const value = {
-      from: parameters.from.toLowerCase(),
-      to: parameters.to.toLowerCase(),
-      value: BigInt(parameters.value),
-      validAfter: BigInt(parameters.validAfter),
-      validBefore: BigInt(parameters.validBefore),
-      nonce: parameters.nonce,
-    };
+    // Replicate the contract's keccak256(abi.encodePacked(...))
+    const messageHash = ethers.solidityPackedKeccak256(
+      ["address", "address", "uint256", "uint256", "uint256", "bytes32", "address", "uint256"],
+      [
+        parameters.from,
+        parameters.to,
+        BigInt(parameters.value),
+        BigInt(parameters.validAfter),
+        BigInt(parameters.validBefore),
+        parameters.nonce,
+        contractAddress,
+        BigInt(chainId),
+      ]
+    );
 
     // Local signature recovery — pure cryptography, no RPC call
-    const recoveredSigner = ethers.verifyTypedData(
-      domain,
-      types,
-      value,
+    // hashMessage adds the "\x19Ethereum Signed Message:\n32" prefix
+    const recoveredSigner = ethers.recoverAddress(
+      ethers.hashMessage(ethers.getBytes(messageHash)),
       parameters.signature
     );
 
@@ -119,3 +106,4 @@ export async function verifyGhostVoucher(
     };
   }
 }
+

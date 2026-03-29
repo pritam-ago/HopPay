@@ -60,12 +60,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c0494531-df8f-4a1b-8155-10086ce40270"
+        "projectId": "0a0b39d1-124b-4812-a7be-9cc4c206dac2"
       }
     },
     "ios": {
       "bundleIdentifier": "com.meshT.app"
     },
-    "owner": "abhinavkajeev"
+    "owner": "pritam_dev"
   }
 }

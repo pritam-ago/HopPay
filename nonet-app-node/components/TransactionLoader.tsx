@@ -14,8 +14,13 @@ import { useBle, submitTransactionToBlockchain } from "@/contexts/BleContext";
 import { CONTRACT_CONFIG, TransactionPayload } from "@/constants/contracts";
 import { ethers } from "ethers";
 
-// Create EIP-3009 transferWithAuthorization signature using EIP-712 typed data signing
-// The contract uses EIP712._hashTypedDataV4, so we must use EIP-712 signing, not solidityPackedKeccak256
+// Create transferWithAuthorization signature matching the deployed contract.
+//
+// The contract (EIPThreeDoubleZeroNine.sol) does:
+//   bytes32 messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid));
+//   ECDSA.recover(keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)), signature)
+//
+// So we must sign with the same simple-hash approach, NOT EIP-712 signTypedData.
 const createTransferWithAuthorizationSignature = async (
   from: string,
   to: string,
@@ -29,7 +34,7 @@ const createTransferWithAuthorizationSignature = async (
 ): Promise<string> => {
   try {
     console.log(
-      "🔐 Creating EIP-3009 transferWithAuthorization signature using EIP-712 typed data..."
+      "🔐 Creating transferWithAuthorization signature (EIP-712 signTypedData)..."
     );
 
     // Create wallet from private key
@@ -44,16 +49,41 @@ const createTransferWithAuthorizationSignature = async (
       );
     }
 
-    // EIP-712 Domain - must match the contract's EIP712 constructor
-    // The contract uses: EIP712(name, "1") where name is the token name
+    // Ensure nonce is a valid 32-byte hex string
+    let nonceBytes32: string;
+    if (nonce.startsWith("0x")) {
+      const nonceBytes = ethers.getBytes(nonce);
+      if (nonceBytes.length !== 32) {
+        throw new Error(`Nonce must be exactly 32 bytes, got ${nonceBytes.length} bytes`);
+      }
+      nonceBytes32 = nonce;
+    } else {
+      if (nonce.length !== 64) {
+        throw new Error(`Nonce must be 64 hex characters, got ${nonce.length}`);
+      }
+      nonceBytes32 = "0x" + nonce;
+    }
+
+    console.log("📝 EIP-712 Signing parameters:", {
+      from,
+      to,
+      value,
+      validAfter,
+      validBefore,
+      nonce: nonceBytes32,
+      contractAddress,
+      chainId,
+    });
+
+    // EIP-712 domain — must match the deployed contract's domain separator
     const domain = {
-      name: CONTRACT_CONFIG.TOKEN_NAME, // Must match contract deployment name
-      version: CONTRACT_CONFIG.TOKEN_VERSION, // "1" as per contract
+      name: CONTRACT_CONFIG.TOKEN_NAME,    // "MESHT"
+      version: CONTRACT_CONFIG.TOKEN_VERSION, // "1"
       chainId: chainId,
       verifyingContract: contractAddress,
     };
 
-    // EIP-712 Types - must match the contract's TRANSFER_WITH_AUTHORIZATION_TYPEHASH structure
+    // EIP-3009 TransferWithAuthorization type
     const types = {
       TransferWithAuthorization: [
         { name: "from", type: "address" },
@@ -65,78 +95,43 @@ const createTransferWithAuthorizationSignature = async (
       ],
     };
 
-    // Message value - ensure nonce is in correct format for EIP-712
-    // For EIP-712 bytes32 type, ethers.js signTypedData expects a hex string
-    // Ensure nonce is a valid 32-byte hex string
-    let nonceValue: string;
-    if (nonce.startsWith("0x")) {
-      // Verify it's exactly 32 bytes (64 hex chars + "0x" = 66 total chars)
-      const nonceBytes = ethers.getBytes(nonce);
-      if (nonceBytes.length !== 32) {
-        throw new Error(`Nonce must be exactly 32 bytes, got ${nonceBytes.length} bytes`);
-      }
-      nonceValue = nonce.toLowerCase(); // Normalize to lowercase
-    } else {
-      // If it's not a hex string, add 0x prefix
-      if (nonce.length !== 64) {
-        throw new Error(`Nonce must be 64 hex characters, got ${nonce.length}`);
-      }
-      nonceValue = "0x" + nonce.toLowerCase();
-    }
-    
-    const transferValue = {
-      from: from.toLowerCase(), // Normalize addresses
-      to: to.toLowerCase(),
-      value: BigInt(value), // Convert to BigInt for proper encoding
+    // The message values
+    const message = {
+      from: from,
+      to: to,
+      value: BigInt(value),
       validAfter: BigInt(validAfter),
       validBefore: BigInt(validBefore),
-      nonce: nonceValue, // bytes32 as hex string
+      nonce: nonceBytes32,
     };
 
     console.log("📝 EIP-712 Domain:", domain);
-    console.log("📝 Message parameters:", {
-      from: transferValue.from,
-      to: transferValue.to,
-      value: transferValue.value.toString(),
-      validAfter: transferValue.validAfter.toString(),
-      validBefore: transferValue.validBefore.toString(),
-      nonce: ethers.hexlify(transferValue.nonce),
-    });
 
-    // Sign using EIP-712 typed data - this is what the contract expects
-    // The contract uses _hashTypedDataV4 which creates the EIP-712 digest
-    const signature = await wallet.signTypedData(domain, types, transferValue);
+    // Sign using EIP-712 typed structured data
+    const signature = await wallet.signTypedData(domain, types, message);
 
-    console.log("✅ EIP-712 signature created:", {
+    console.log("✅ EIP-712 Signature created:", {
       signature,
       signatureLength: signature.length,
     });
 
-    // Verify signature using EIP-712
+    // Verify locally: recover signer from typed data
     try {
-      // Recover signer from EIP-712 signature
-      const recoveredSigner = ethers.verifyTypedData(
-        domain,
-        types,
-        transferValue,
-        signature
-      );
-      console.log("🔍 EIP-712 Signature verification:", {
-        recoveredSigner,
-        expectedSigner: from,
-        isValid: recoveredSigner.toLowerCase() === from.toLowerCase(),
-      });
+      const recoveredSigner = ethers.verifyTypedData(domain, types, message, signature);
+      const isValid = recoveredSigner.toLowerCase() === from.toLowerCase();
+      console.log("🔍 Signature verification:", { recoveredSigner, expectedSigner: from, isValid });
+      if (!isValid) {
+        throw new Error(`Signature verification failed: recovered ${recoveredSigner}, expected ${from}`);
+      }
     } catch (verifyError) {
-      console.warn("⚠️ EIP-712 signature verification failed:", verifyError);
+      console.warn("⚠️ Signature verification failed:", verifyError);
+      throw verifyError;
     }
 
     return signature;
   } catch (error) {
-    console.error(
-      "❌ Error creating EIP-712 signature:",
-      error
-    );
-    throw new Error("Failed to create transferWithAuthorization signature");
+    console.error("❌ Error creating signature:", error);
+    throw new Error(`Failed to create transferWithAuthorization signature: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -207,6 +202,7 @@ interface TransactionLoaderProps {
     // UPI metadata from QR scan — wired through to relayer for Decentro INR payout
     upiId?: string;
     merchantName?: string;
+    merchantPhone?: string; // for demo bank SMS
   };
 }
 
@@ -342,12 +338,13 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           }, 800);
         } else {
           console.error("❌ Direct submission failed:", responseObj.error);
-          // Show error but still complete the flow
+          // Transaction failed — pass the response with success:false back
+          // transaction.tsx will check response.success and show an error Alert
           setCurrentStep(TRANSACTION_STEPS.length - 1);
           setIsCompleted(true);
           setTimeout(() => {
             onComplete(directSubmissionResponse);
-          }, 1500);
+          }, 1000);
         }
       } catch (parseErr) {
         console.error("❌ Error parsing direct submission response:", parseErr);
@@ -534,10 +531,9 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         throw new Error("No wallet private key available for signing");
       }
 
-      // Convert amount to wei (assuming 18 decimals)
-      const valueInWei = (
-        BigInt(transactionData.amount) * BigInt(10 ** 18)
-      ).toString();
+      // Convert amount to wei (18 decimals). Use ethers.parseUnits to handle
+      // decimal values like "0.5" safely — BigInt("0.5") would throw a SyntaxError.
+      const valueInWei = ethers.parseUnits(transactionData.amount, 18).toString();
 
       // Create real EIP-3009 signature using wallet's private key
       const realSignature = await createTransferWithAuthorizationSignature(
@@ -568,6 +564,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
         },
         upiId: transactionData.upiId,
         merchantName: transactionData.merchantName,
+        merchantPhone: transactionData.merchantPhone,
       };
 
       console.log("📝 Transaction payload created:", {
@@ -580,10 +577,7 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
 
       const payloadString = JSON.stringify(transactionPayload);
 
-      // Update this IP when testing on a real device (e.g. "http://192.168.1.5:3001/relay")
-      const RELAYER_URL = "http://localhost:3001/relay";
-
-      // Check internet connectivity and choose submission path
+      // Submit via relayer
       if (hasInternet) {
         console.log("🚀 Device has internet - submitting via relayer...");
         setIsDirectSubmission(true);
@@ -594,9 +588,14 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
           let response: string;
 
           if (transactionPayload.upiId) {
-            // UPI payment → route through relayer: blockchain + Decentro INR payout
+            // UPI payment → route through relayer: blockchain + Decentro INR payout + SMS
             console.log("💳 UPI payment — calling relayer for INR payout to:", transactionPayload.upiId);
-            const relayRes = await fetch(RELAYER_URL, {
+          } else {
+            console.log("🔗 Crypto payment — routing through relayer for blockchain submission");
+          }
+
+          try {
+            const relayRes = await fetch(CONTRACT_CONFIG.RELAYER_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: payloadString,
@@ -612,10 +611,11 @@ export const TransactionLoader: React.FC<TransactionLoaderProps> = ({
               timestamp: Date.now(),
             });
             if (relayJson.success) {
-              console.log("✅ Relayer: TX", relayJson.transactionHash, "| INR Payout:", relayJson.payout);
+              console.log("✅ Relayer: TX", relayJson.transactionHash, "| Payout:", relayJson.payout);
             }
-          } else {
-            // Crypto-only (no UPI) → submit directly to blockchain
+          } catch (relayErr) {
+            // Fallback: if relayer is unreachable, submit directly to blockchain
+            console.warn("⚠️ Relayer unreachable, falling back to direct submission:", relayErr);
             response = await submitTransactionToBlockchain(payloadString);
           }
 

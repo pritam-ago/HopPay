@@ -5,7 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
-const { triggerInrPayout, meshtToInr } = require("./payout");
+const { sendCreditSms, extractPhoneFromUpi } = require("./sms.cjs");
 
 dotenv.config();
 
@@ -43,17 +43,22 @@ const CONTRACT_ABI = [
 // ─── Pending Queue ────────────────────────────────────────────────────────────
 const pendingQueue = new Map();
 
-// ─── Local EIP-712 Signature Verification ────────────────────────────────────
+// ─── Local Signature Verification ────────────────────────────────────────────
+// Must match the contract's verification:
+//   messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid))
+//   ECDSA.recover(keccak256("\x19Ethereum Signed Message:\n32" + messageHash), signature)
 
 async function verifySignature(payload) {
   try {
     const { parameters, contractAddress } = payload;
+
     const domain = {
       name: TOKEN_NAME,
       version: TOKEN_VERSION,
       chainId: CHAIN_ID,
       verifyingContract: contractAddress,
     };
+
     const types = {
       TransferWithAuthorization: [
         { name: "from", type: "address" },
@@ -64,15 +69,17 @@ async function verifySignature(payload) {
         { name: "nonce", type: "bytes32" },
       ],
     };
-    const value = {
-      from: parameters.from.toLowerCase(),
-      to: parameters.to.toLowerCase(),
+
+    const message = {
+      from: parameters.from,
+      to: parameters.to,
       value: BigInt(parameters.value),
       validAfter: BigInt(parameters.validAfter),
       validBefore: BigInt(parameters.validBefore),
       nonce: parameters.nonce,
     };
-    const recovered = ethers.verifyTypedData(domain, types, value, parameters.signature);
+
+    const recovered = ethers.verifyTypedData(domain, types, message, parameters.signature);
     return recovered.toLowerCase() === parameters.from.toLowerCase();
   } catch {
     return false;
@@ -184,15 +191,23 @@ app.post("/relay", async (req, res) => {
       return res.status(500).json({ success: false, error: `Blockchain failed: ${chainErr?.message}` });
     }
 
-    // INR payout
-    let payoutResult = null;
-    const amountInr = meshtToInr(parameters.value);
+    // ── SMS Notification ───────────────────────────────────────────────────────
     const upiId = payload.upiId ?? null;
-
+    
     if (upiId) {
-      console.log(`[PAYOUT] ₹${amountInr} → ${upiId}`);
-      payoutResult = await triggerInrPayout(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
-      pendingItem.payoutResult = payoutResult;
+      const phoneFromUpi = extractPhoneFromUpi(upiId);
+      const merchantPhone = phoneFromUpi || (payload as any).merchantPhone || process.env.DEMO_MERCHANT_PHONE;
+      
+      if (phoneFromUpi) {
+        console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      }
+
+      if (merchantPhone) {
+        const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+        const amountInr = parseFloat(ethers.formatUnits(parameters.value, 18)) * 100; // Assuming 1 MESHT = ₹100
+        sendCreditSms(merchantPhone, amountInr, shortRef, (payload as any).merchantName ?? "Merchant")
+          .catch((e: any) => console.error("[SMS] Failed:", e.message));
+      }
     }
 
     pendingQueue.set(itemId, pendingItem);
@@ -204,8 +219,6 @@ app.post("/relay", async (req, res) => {
       transactionHash: txHash,
       blockNumber,
       explorerUrl: `https://evm-testnet.flowscan.io/tx/${txHash}`,
-      amountInr,
-      payout: payoutResult,
       elapsed,
     });
   } catch (err) {
@@ -216,8 +229,9 @@ app.post("/relay", async (req, res) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 MeshT Relayer running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 MeshT Relayer running on http://0.0.0.0:${PORT}`);
+  console.log(`   Accessible from phone at: http://172.16.41.78:${PORT}`);
   console.log(`   Network:  ${RPC_URL}`);
   console.log(`   Contract: ${CONTRACT_ADDRESS}`);
   if (RELAYER_PRIVATE_KEY) {

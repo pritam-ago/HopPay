@@ -1,6 +1,6 @@
 .DS_Store
 
 node_modules
-
+nul
 .env
 scripts/bun.lockb

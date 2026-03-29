@@ -32,11 +32,12 @@ import { CONTRACT_CONFIG } from '@/constants/contracts';
 import { ethers } from 'ethers';
 
 export default function TransactionPage(): React.JSX.Element {
-  const { toAddress, merchantName, upiId, amount: qrAmount, note } =
+  const { toAddress, merchantName, upiId, merchantPhone, amount: qrAmount, note } =
     useLocalSearchParams<{
       toAddress: string;
       merchantName?: string;
       upiId?: string;
+      merchantPhone?: string;
       amount?: string;
       note?: string;
     }>();
@@ -77,56 +78,63 @@ export default function TransactionPage(): React.JSX.Element {
   };
 
 
-  const generateOfflineTransactionHash = (): string => {
-    // Generate a realistic-looking transaction hash for offline display
-    const chars = '0123456789abcdef';
-    let hash = '0x';
-    for (let i = 0; i < 64; i++) {
-      hash += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return hash;
-  };
-
   const handleTransactionComplete = (fullMessage?: string) => {
     setShowTransactionLoader(false);
 
-    // Use the response message as transaction hash if available, otherwise generate one
-    let txHash: string;
+    // Only navigate to success page if the response confirms a real on-chain success
     if (fullMessage) {
-      // If we received a response, try to extract transaction hash from it
       try {
         const response = JSON.parse(fullMessage);
-        txHash =
-          response.transactionHash ||
-          response.hash ||
-          generateOfflineTransactionHash();
+
+        if (response.success && response.transactionHash) {
+          // Real blockchain success — navigate to the success screen
+          const txHash = response.transactionHash;
+          const timestamp = Date.now().toString();
+
+          router.replace({
+            pathname: '/transaction-success',
+            params: {
+              amount,
+              currency: selectedChain.symbol,
+              toAddress: toAddress || '',
+              fromAddress: userWalletAddress || '',
+              chain: selectedChain.name,
+              txHash,
+              timestamp,
+              fullMessage: fullMessage || '',
+              upiId: upiId || '',
+              merchantName: merchantName || '',
+              merchantPhone: merchantPhone || '',
+            },
+          });
+          return;
+        }
+
+        // Transaction was NOT successful — show the real error to the user
+        const errorMsg =
+          response.error ||
+          `Transaction failed at stage: ${response.stage || 'unknown'}`;
+        Alert.alert(
+          'Transaction Failed',
+          errorMsg,
+          [{ text: 'OK' }]
+        );
       } catch {
-        // If parsing fails, use the full message as hash or generate one
-        txHash =
-          fullMessage.length > 10
-            ? fullMessage
-            : generateOfflineTransactionHash();
+        // Could not parse response
+        Alert.alert(
+          'Transaction Failed',
+          'Received an invalid response from the network. Please try again.',
+          [{ text: 'OK' }]
+        );
       }
     } else {
-      txHash = generateOfflineTransactionHash();
+      // No response at all — transaction was not confirmed
+      Alert.alert(
+        'Transaction Failed',
+        'No confirmation received from the blockchain. The transaction may not have been submitted.',
+        [{ text: 'OK' }]
+      );
     }
-
-    const timestamp = Date.now().toString();
-
-    // Navigate to success page with transaction details
-    router.replace({
-      pathname: '/transaction-success',
-      params: {
-        amount,
-        currency: selectedChain.symbol, // Use chain symbol as currency
-        toAddress: toAddress || '',
-        fromAddress: userWalletAddress || '',
-        chain: selectedChain.name,
-        txHash,
-        timestamp,
-        fullMessage: fullMessage || '', // Pass the full response message
-      },
-    });
   };
 
   const handleTransactionCancel = () => {
@@ -180,6 +188,7 @@ export default function TransactionPage(): React.JSX.Element {
           chainId: selectedChain.chainId,
           upiId: upiId || undefined,
           merchantName: merchantName || undefined,
+          merchantPhone: merchantPhone || undefined,
         }}
       />
     );

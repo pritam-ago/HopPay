@@ -5,7 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { ethers } = require("ethers");
-const { triggerInrPayout, meshtToInr } = require("./payout.cjs");
+const { sendCreditSms, extractPhoneFromUpi } = require("./sms.cjs");
 
 dotenv.config();
 
@@ -43,17 +43,24 @@ const CONTRACT_ABI = [
 // ─── Pending Queue ────────────────────────────────────────────────────────────
 const pendingQueue = new Map();
 
-// ─── Local EIP-712 Signature Verification ────────────────────────────────────
+// ─── Local Signature Verification ────────────────────────────────────────────
+// Must match the contract's verification:
+//   messageHash = keccak256(abi.encodePacked(from, to, value, validAfter, validBefore, nonce, address(this), block.chainid))
+//   ECDSA.recover(keccak256("\x19Ethereum Signed Message:\n32" + messageHash), signature)
 
 async function verifySignature(payload) {
   try {
     const { parameters, contractAddress } = payload;
+
+    // EIP-712 domain — must match the deployed contract's domain separator
     const domain = {
-      name: TOKEN_NAME,
-      version: TOKEN_VERSION,
+      name: TOKEN_NAME,      // "MESHT"
+      version: TOKEN_VERSION, // "1"
       chainId: CHAIN_ID,
       verifyingContract: contractAddress,
     };
+
+    // EIP-3009 TransferWithAuthorization type
     const types = {
       TransferWithAuthorization: [
         { name: "from", type: "address" },
@@ -64,15 +71,18 @@ async function verifySignature(payload) {
         { name: "nonce", type: "bytes32" },
       ],
     };
-    const value = {
-      from: parameters.from.toLowerCase(),
-      to: parameters.to.toLowerCase(),
+
+    const message = {
+      from: parameters.from,
+      to: parameters.to,
       value: BigInt(parameters.value),
       validAfter: BigInt(parameters.validAfter),
       validBefore: BigInt(parameters.validBefore),
       nonce: parameters.nonce,
     };
-    const recovered = ethers.verifyTypedData(domain, types, value, parameters.signature);
+
+    // Recover signer using EIP-712 typed data
+    const recovered = ethers.verifyTypedData(domain, types, message, parameters.signature);
     return recovered.toLowerCase() === parameters.from.toLowerCase();
   } catch {
     return false;
@@ -115,6 +125,12 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+// Log EVERY incoming request so we can see if the phone is reaching us
+app.use((req, _res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.path} from ${req.ip} | body keys: ${Object.keys(req.body || {}).join(', ') || 'none'}`);
+  next();
+});
+
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -136,6 +152,98 @@ app.get("/queue", (_req, res) => {
     error: item.error,
   }));
   res.json({ count: items.length, items });
+});
+
+// ─── Test SMS Endpoint ────────────────────────────────────────────────────────
+// Test endpoint to verify Twilio credentials
+app.get("/test-sms", async (req, res) => {
+  console.log("[TEST-SMS] Testing Twilio configuration...");
+  
+  const testPhone = process.env.DEMO_MERCHANT_PHONE || "8220811320";
+  const testAmount = 100;
+  const testRef = "TEST123";
+  
+  console.log(`[TEST-SMS] Sending test SMS to ${testPhone}`);
+  
+  try {
+    const result = await sendCreditSms(testPhone, testAmount, testRef, "Test Merchant");
+    console.log("[TEST-SMS] Result:", result);
+    
+    res.json({
+      success: result.success,
+      phone: `+91${testPhone}`,
+      result,
+      credentials: {
+        accountSid: process.env.TWILIO_ACCOUNT_SID ? `${process.env.TWILIO_ACCOUNT_SID.slice(0, 10)}...` : "NOT SET",
+        authToken: process.env.TWILIO_AUTH_TOKEN ? "SET (hidden)" : "NOT SET",
+        fromNumber: process.env.TWILIO_FROM_NUMBER || "NOT SET",
+      }
+    });
+  } catch (err) {
+    console.error("[TEST-SMS] Error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Standalone SMS notification endpoint ─────────────────────────────────────
+// The app calls this AFTER a successful on-chain transaction to trigger
+// the merchant SMS — no need for the full relay flow.
+app.post("/send-sms", async (req, res) => {
+  try {
+    const { upiId, merchantPhone, amount, txHash, merchantName } = req.body;
+    console.log(`[SMS-ENDPOINT] Request: upiId=${upiId} phone=${merchantPhone} amount=${amount} txHash=${txHash}`);
+
+    let phone = null;
+    let phoneSource = null;
+
+    // Priority 1: Extract phone from UPI ID
+    if (upiId) {
+      const phoneFromUpi = extractPhoneFromUpi(upiId);
+      if (phoneFromUpi) {
+        phone = phoneFromUpi;
+        phoneSource = `UPI ID "${upiId}"`;
+        console.log(`[SMS-ENDPOINT] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+      } else {
+        console.warn(`[SMS-ENDPOINT] ⚠️ Could not extract phone from UPI ID "${upiId}" - UPI format may not contain phone number`);
+      }
+    }
+
+    // Priority 2: Use provided merchant phone
+    if (!phone && merchantPhone) {
+      phone = merchantPhone;
+      phoneSource = "provided merchant phone";
+      console.log(`[SMS-ENDPOINT] 📱 Using provided merchant phone: ${merchantPhone}`);
+    }
+
+    // Priority 3: FALLBACK ONLY - Use DEMO_MERCHANT_PHONE if UPI ID exists but extraction failed
+    if (!phone && upiId && process.env.DEMO_MERCHANT_PHONE) {
+      phone = process.env.DEMO_MERCHANT_PHONE;
+      phoneSource = "DEMO_MERCHANT_PHONE (fallback for UPI payment)";
+      console.log(`[SMS-ENDPOINT] 📱 Using DEMO_MERCHANT_PHONE as fallback: ${process.env.DEMO_MERCHANT_PHONE}`);
+    }
+
+    if (!phone) {
+      console.warn("[SMS-ENDPOINT] ⚠️ No phone number available - cannot send SMS");
+      return res.status(400).json({ success: false, error: "No phone number available" });
+    }
+
+    const amountNum = parseFloat(amount) || 0;
+    const shortRef = txHash ? `MeshT${txHash.slice(2, 8).toUpperCase()}` : `MeshT${Date.now().toString(36).toUpperCase()}`;
+
+    console.log(`[SMS-ENDPOINT] 📤 Sending SMS to ${phone} (from ${phoneSource}) for amount ₹${amountNum} (ref: ${shortRef})`);
+    const smsResult = await sendCreditSms(phone, amountNum, shortRef, merchantName || "Merchant");
+    console.log(`[SMS-ENDPOINT] ✅ Result:`, smsResult);
+
+    return res.json({
+      success: smsResult.success,
+      phone,
+      phoneSource,
+      smsResult,
+    });
+  } catch (err) {
+    console.error("[SMS-ENDPOINT] ❌ Error:", err?.message);
+    return res.status(500).json({ success: false, error: err?.message });
+  }
 });
 
 app.post("/relay", async (req, res) => {
@@ -161,7 +269,6 @@ app.post("/relay", async (req, res) => {
 
     console.log(`[RELAY] ✅ Signature verified`);
 
-    // Deduplicate by nonce
     const itemId = parameters.nonce;
     if (pendingQueue.has(itemId)) {
       const existing = pendingQueue.get(itemId);
@@ -184,15 +291,51 @@ app.post("/relay", async (req, res) => {
       return res.status(500).json({ success: false, error: `Blockchain failed: ${chainErr?.message}` });
     }
 
-    // INR payout
-    let payoutResult = null;
-    const amountInr = meshtToInr(parameters.value);
+    // ── SMS Notification ───────────────────────────────────────────────────────
     const upiId = payload.upiId ?? null;
+    
+    // Only attempt SMS if we have a UPI ID or merchant phone
+    if (!upiId && !payload.merchantPhone) {
+      console.log("[SMS] ⏭️  No UPI ID or merchant phone - skipping SMS notification");
+    } else {
+      let merchantPhone = null;
+      let phoneSource = null;
 
-    if (upiId) {
-      console.log(`[PAYOUT] ₹${amountInr} → ${upiId}`);
-      payoutResult = await triggerInrPayout(upiId, amountInr, txHash, payload.merchantName ?? "Merchant");
-      pendingItem.payoutResult = payoutResult;
+      // Priority 1: Extract phone from UPI ID
+      if (upiId) {
+        const phoneFromUpi = extractPhoneFromUpi(upiId);
+        if (phoneFromUpi) {
+          merchantPhone = phoneFromUpi;
+          phoneSource = `UPI ID "${upiId}"`;
+          console.log(`[SMS] 📲 Extracted phone from UPI ID "${upiId}": ${phoneFromUpi}`);
+        } else {
+          console.warn(`[SMS] ⚠️ Could not extract phone from UPI ID "${upiId}"`);
+        }
+      }
+
+      // Priority 2: Use provided merchant phone
+      if (!merchantPhone && payload.merchantPhone) {
+        merchantPhone = payload.merchantPhone;
+        phoneSource = "provided merchant phone";
+        console.log(`[SMS] 📱 Using provided merchant phone: ${payload.merchantPhone}`);
+      }
+
+      // Priority 3: FALLBACK ONLY - Use DEMO_MERCHANT_PHONE if UPI ID exists but extraction failed
+      if (!merchantPhone && upiId && process.env.DEMO_MERCHANT_PHONE) {
+        merchantPhone = process.env.DEMO_MERCHANT_PHONE;
+        phoneSource = "DEMO_MERCHANT_PHONE (fallback)";
+        console.log(`[SMS] 📱 Using DEMO_MERCHANT_PHONE as fallback: ${process.env.DEMO_MERCHANT_PHONE}`);
+      }
+
+      if (merchantPhone) {
+        const shortRef = `MeshT${txHash.slice(2, 8).toUpperCase()}`;
+        const amountInr = parseFloat(ethers.formatUnits(parameters.value, 18)) * 100; // Assuming 1 MESHT = ₹100
+        console.log(`[SMS] 📤 Sending to ${merchantPhone} (from ${phoneSource}) for ₹${amountInr} (ref: ${shortRef})`);
+        sendCreditSms(merchantPhone, amountInr, shortRef, payload.merchantName ?? "Merchant")
+          .catch(e => console.error("[SMS] ❌ Failed:", e.message));
+      } else {
+        console.warn("[SMS] ⚠️ Could not determine phone number - skipping SMS");
+      }
     }
 
     pendingQueue.set(itemId, pendingItem);
@@ -204,8 +347,6 @@ app.post("/relay", async (req, res) => {
       transactionHash: txHash,
       blockNumber,
       explorerUrl: `https://evm-testnet.flowscan.io/tx/${txHash}`,
-      amountInr,
-      payout: payoutResult,
       elapsed,
     });
   } catch (err) {
@@ -214,19 +355,16 @@ app.post("/relay", async (req, res) => {
   }
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-
-app.listen(PORT, () => {
-  console.log(`\n🚀 MeshT Relayer running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 MeshT Relayer running on http://0.0.0.0:${PORT}`);
+  console.log(`   Accessible from phone at: http://172.16.41.80:${PORT}`);
   console.log(`   Network:  ${RPC_URL}`);
   console.log(`   Contract: ${CONTRACT_ADDRESS}`);
   if (RELAYER_PRIVATE_KEY) {
     console.log(`   Relayer:  ${new ethers.Wallet(RELAYER_PRIVATE_KEY).address}`);
-  } else {
-    console.warn(`   ⚠️  RELAYER_PRIVATE_KEY not set`);
   }
-  console.log(`\n   POST http://localhost:${PORT}/relay`);
-  console.log(`   GET  http://localhost:${PORT}/health\n`);
+  console.log(`\n   POST http://172.16.41.80:${PORT}/relay`);
+  console.log(`   GET  http://172.16.41.80:${PORT}/health\n`);
 });
 
 module.exports = app;
